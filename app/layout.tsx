@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "TileMatch — Find tiles from Vancouver suppliers",
+  title: "Design Matcher — Find tiles from Vancouver suppliers",
   description: "Paste any image and instantly find matching tiles from local Vancouver suppliers.",
 };
 

@@ -483,7 +483,7 @@ export default function PinterestClient() {
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-stone-400 to-stone-600 flex items-center justify-center text-sm font-bold text-white">T</div>
-              <span className="font-semibold text-neutral-100 tracking-tight">TileMatch</span>
+              <span className="font-semibold text-neutral-100 tracking-tight">Design Matcher</span>
             </Link>
             <span className="text-neutral-700">/</span>
             <div className="flex items-center gap-1.5">

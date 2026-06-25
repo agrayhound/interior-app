@@ -258,7 +258,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-stone-400 to-stone-600 flex items-center justify-center text-sm font-bold text-white">T</div>
-            <span className="font-semibold text-neutral-100 tracking-tight">TileMatch</span>
+            <span className="font-semibold text-neutral-100 tracking-tight">Design Matcher</span>
           </div>
           <Link
             href="/pinterest"
@@ -434,7 +434,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
 
       <footer className="border-t border-neutral-800/60 px-6 py-8 mt-8">
         <div className="max-w-6xl mx-auto flex items-center justify-between text-xs text-neutral-600">
-          <span>© 2026 TileMatch. For interior designers &amp; tile suppliers.</span>
+          <span>© 2026 Design Matcher. For interior designers &amp; tile suppliers.</span>
           <span>Vancouver, BC</span>
         </div>
       </footer>
