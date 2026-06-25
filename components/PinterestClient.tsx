@@ -165,7 +165,7 @@ function ApiNotApprovedBanner({ message }: { message: string }) {
       </div>
       <h2 className="text-lg font-semibold text-neutral-200 mb-2">Pinterest API Not Yet Approved</h2>
       <p className="text-sm text-neutral-400 mb-4">
-        The Pinterest developer app (ID: {process.env.NEXT_PUBLIC_PINTEREST_CLIENT_ID ?? "1583999"}) is pending approval for the v5 API.
+        The Pinterest developer app (ID: {process.env.NEXT_PUBLIC_PINTEREST_CLIENT_ID ?? "1584653"}) is pending approval for the v5 API.
         Once approved, this page will display your boards and pins automatically.
       </p>
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 text-left text-xs text-neutral-500 font-mono">
