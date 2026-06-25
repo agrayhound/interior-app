@@ -66,10 +66,10 @@ export default function PrivacyPage() {
             <p className="text-neutral-400 leading-relaxed">
               Questions about this policy?{" "}
               <a
-                href="mailto:privacy@designmatcher.com"
+                href="mailto:afrankdawson@gmail.com"
                 className="text-neutral-300 hover:text-white underline underline-offset-2 transition-colors"
               >
-                privacy@designmatcher.com
+                afrankdawson@gmail.com
               </a>
             </p>
           </section>
