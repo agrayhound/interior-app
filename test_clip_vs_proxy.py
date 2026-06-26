@@ -10,7 +10,7 @@ from transformers import CLIPModel, CLIPProcessor
 import httpx, openai, anthropic
 
 SUPABASE_URL = "https://dnghimclwgjmtnesxdmo.supabase.co"
-SUPA_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRuZ2hpbWNsd2dqbXRuZXN4ZG1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTAyOTA5NCwiZXhwIjoyMDk2NjA1MDk0fQ.pkSlai_x2w347sDFgwne0GViYu4bXtWPpTkK-cdFi2M"
+SUPA_KEY  = os.environ['SUPABASE_SERVICE_KEY']
 OAI_KEY   = "os.environ['OPENAI_API_KEY']"
 ANT_KEY   = "os.environ['ANTHROPIC_API_KEY']"
 

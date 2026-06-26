@@ -26,7 +26,7 @@ from openai import OpenAI
 
 # ── Config ──────────────────────────────────────────────────────────────────
 SUPABASE_URL = "https://dnghimclwgjmtnesxdmo.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRuZ2hpbWNsd2dqbXRuZXN4ZG1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTAyOTA5NCwiZXhwIjoyMDk2NjA1MDk0fQ.pkSlai_x2w347sDFgwne0GViYu4bXtWPpTkK-cdFi2M"
+SUPABASE_KEY = os.environ['SUPABASE_SERVICE_KEY']
 ANTHROPIC_API_KEY = "os.environ['ANTHROPIC_API_KEY']"
 OPENAI_API_KEY = "os.environ['OPENAI_API_KEY']"
 

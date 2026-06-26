@@ -8,7 +8,7 @@
 import { CLIPVisionModelWithProjection, AutoProcessor, RawImage, env } from "@xenova/transformers";
 
 const SUPABASE_URL = "https://dnghimclwgjmtnesxdmo.supabase.co";
-const KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRuZ2hpbWNsd2dqbXRuZXN4ZG1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTAyOTA5NCwiZXhwIjoyMDk2NjA1MDk0fQ.pkSlai_x2w347sDFgwne0GViYu4bXtWPpTkK-cdFi2M";
+const KEY = process.env.SUPABASE_SERVICE_KEY;
 const HEADERS = { apikey: KEY, Authorization: `Bearer ${KEY}` };
 
 function cosineSim(a, b) {
