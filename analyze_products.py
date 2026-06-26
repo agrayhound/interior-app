@@ -27,8 +27,8 @@ from openai import OpenAI
 # ── Config ──────────────────────────────────────────────────────────────────
 SUPABASE_URL = "https://dnghimclwgjmtnesxdmo.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRuZ2hpbWNsd2dqbXRuZXN4ZG1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTAyOTA5NCwiZXhwIjoyMDk2NjA1MDk0fQ.pkSlai_x2w347sDFgwne0GViYu4bXtWPpTkK-cdFi2M"
-ANTHROPIC_API_KEY = "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"
-OPENAI_API_KEY = "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"
+ANTHROPIC_API_KEY = "os.environ['ANTHROPIC_API_KEY']"
+OPENAI_API_KEY = "os.environ['OPENAI_API_KEY']"
 
 CLAUDE_MODEL = "claude-sonnet-4-6"
 EMBED_MODEL = "text-embedding-3-small"
