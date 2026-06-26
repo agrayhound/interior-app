@@ -5,7 +5,7 @@ let _processor: Awaited<ReturnType<typeof import("@xenova/transformers")["AutoPr
 async function getModel() {
   if (!_model || !_processor) {
     const { CLIPVisionModelWithProjection, AutoProcessor, env } = await import("@xenova/transformers");
-    env.cacheDir = "./.cache/transformers";
+    env.cacheDir = "/tmp/transformers";
     [_processor, _model] = await Promise.all([
       AutoProcessor.from_pretrained("Xenova/clip-vit-base-patch32"),
       // quantized: false → loads model.onnx (fp32) instead of model_quantized.onnx (int8)
