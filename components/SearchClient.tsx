@@ -257,7 +257,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
       <header className="border-b border-neutral-800/60 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-stone-400 to-stone-600 flex items-center justify-center text-sm font-bold text-white">T</div>
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-stone-400 to-stone-600 flex items-center justify-center text-[9px] font-bold text-white">DM</div>
             <span className="font-semibold text-neutral-100 tracking-tight">Design Matcher</span>
           </div>
           <Link
