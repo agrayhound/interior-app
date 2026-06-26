@@ -1,7 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabase } from "@/lib/supabase";
-import { embedImageUrl } from "@/lib/clipEmbed";
+
+const MODAL_CLIP_URL = "https://agrayhound--clip-embedder-embed-endpoint.modal.run";
+
+async function fetchClipEmbedding(imageUrl: string): Promise<number[] | null> {
+  try {
+    const res = await fetch(MODAL_CLIP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageUrl }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.embedding ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -35,12 +51,10 @@ export async function POST(req: NextRequest) {
 
     const embedText = buildEmbedText(element);
 
-    // CLIP disabled on Vercel — fp32 model (~350MB) exceeds serverless memory.
-    // Semantic-only search is used in production; hybrid search runs locally.
-    const [embeddingRes] = await Promise.all([
+    const [embeddingRes, clipVector] = await Promise.all([
       openai.embeddings.create({ model: "text-embedding-3-small", input: embedText }),
+      imageUrl ? fetchClipEmbedding(imageUrl) : Promise.resolve(null),
     ]);
-    const clipVector = null;
     const textVector = embeddingRes.data[0].embedding;
 
     let results;
