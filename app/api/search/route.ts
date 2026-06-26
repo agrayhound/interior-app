@@ -35,11 +35,12 @@ export async function POST(req: NextRequest) {
 
     const embedText = buildEmbedText(element);
 
-    // Generate text embedding and true CLIP image embedding in parallel
-    const [embeddingRes, clipVector] = await Promise.all([
+    // CLIP disabled on Vercel — fp32 model (~350MB) exceeds serverless memory.
+    // Semantic-only search is used in production; hybrid search runs locally.
+    const [embeddingRes] = await Promise.all([
       openai.embeddings.create({ model: "text-embedding-3-small", input: embedText }),
-      imageUrl ? embedImageUrl(imageUrl).catch(() => null) : Promise.resolve(null),
     ]);
+    const clipVector = null;
     const textVector = embeddingRes.data[0].embedding;
 
     let results;
