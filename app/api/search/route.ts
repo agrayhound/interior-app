@@ -43,17 +43,19 @@ function buildEmbedText(element: Element): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as { element: Element; imageUrl?: string };
-    const { element, imageUrl } = body;
+    const body = await req.json() as { element: Element; imageUrl?: string; imageData?: string };
+    const { element, imageUrl, imageData } = body;
     if (!element) {
       return NextResponse.json({ error: "element required" }, { status: 400 });
     }
 
     const embedText = buildEmbedText(element);
 
+    // Skip CLIP for base64 data URLs — Modal endpoint requires a fetchable URL
+    const clipSource = imageData ? null : imageUrl;
     const [embeddingRes, clipVector] = await Promise.all([
       openai.embeddings.create({ model: "text-embedding-3-small", input: embedText }),
-      imageUrl ? fetchClipEmbedding(imageUrl) : Promise.resolve(null),
+      clipSource ? fetchClipEmbedding(clipSource) : Promise.resolve(null),
     ]);
     const textVector = embeddingRes.data[0].embedding;
 

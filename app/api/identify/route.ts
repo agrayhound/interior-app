@@ -20,14 +20,24 @@ function fetchImageAsBase64(imageUrl: string) {
   });
 }
 
+function parseDataUrl(dataUrl: string): { base64: string; mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" } {
+  const m = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/);
+  if (!m) throw new Error("Invalid data URL");
+  const mt = m[1] as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+  return { base64: m[2], mediaType: mt };
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { imageUrl } = await req.json();
-    if (!imageUrl) {
-      return NextResponse.json({ error: "imageUrl required" }, { status: 400 });
+    const body = await req.json();
+    const { imageUrl, imageData } = body;
+    if (!imageUrl && !imageData) {
+      return NextResponse.json({ error: "imageUrl or imageData required" }, { status: 400 });
     }
 
-    const { base64, mediaType } = await fetchImageAsBase64(imageUrl);
+    const { base64, mediaType } = imageData
+      ? parseDataUrl(imageData)
+      : await fetchImageAsBase64(imageUrl);
 
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { Tile } from "@/lib/getFeaturedTiles";
@@ -186,6 +186,8 @@ function TileCard({ tile }: { tile: SearchResult | Tile }) {
   );
 }
 
+interface Rect { x: number; y: number; w: number; h: number }
+
 export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [url, setUrl] = useState("");
   const [preview, setPreview] = useState("");
@@ -199,6 +201,127 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [searchError, setSearchError] = useState("");
 
+  // Region selection state
+  const imgRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [startPt, setStartPt] = useState<{ x: number; y: number } | null>(null);
+  const [selection, setSelection] = useState<Rect | null>(null);
+  const [croppedDataUrl, setCroppedDataUrl] = useState<string | null>(null);
+
+  function getCanvasPoint(e: React.MouseEvent<HTMLCanvasElement>): { x: number; y: number } {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+  }
+
+  function drawSelectionRect(rect: Rect) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Dim outside selection
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Clear (brighten) inside selection
+    ctx.clearRect(rect.x, rect.y, rect.w, rect.h);
+    // Border
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+    // Corner handles
+    const hs = 8;
+    ctx.fillStyle = "white";
+    [[rect.x, rect.y], [rect.x + rect.w, rect.y], [rect.x, rect.y + rect.h], [rect.x + rect.w, rect.y + rect.h]].forEach(([cx, cy]) => {
+      ctx.fillRect(cx - hs / 2, cy - hs / 2, hs, hs);
+    });
+  }
+
+  function clearCanvas() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function syncCanvasSize() {
+    const img = imgRef.current;
+    const canvas = canvasRef.current;
+    if (!img || !canvas) return;
+    canvas.width = img.offsetWidth;
+    canvas.height = img.offsetHeight;
+  }
+
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    syncCanvasSize();
+    const pt = getCanvasPoint(e);
+    setIsDrawing(true);
+    setStartPt(pt);
+    setSelection(null);
+    setCroppedDataUrl(null);
+    clearCanvas();
+  }, []);
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || !startPt) return;
+    const pt = getCanvasPoint(e);
+    const rect: Rect = {
+      x: Math.min(startPt.x, pt.x),
+      y: Math.min(startPt.y, pt.y),
+      w: Math.abs(pt.x - startPt.x),
+      h: Math.abs(pt.y - startPt.y),
+    };
+    drawSelectionRect(rect);
+  }, [isDrawing, startPt]);
+
+  const handleCanvasMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || !startPt) return;
+    setIsDrawing(false);
+    const pt = getCanvasPoint(e);
+    const rect: Rect = {
+      x: Math.min(startPt.x, pt.x),
+      y: Math.min(startPt.y, pt.y),
+      w: Math.abs(pt.x - startPt.x),
+      h: Math.abs(pt.y - startPt.y),
+    };
+    if (rect.w < 10 || rect.h < 10) {
+      clearCanvas();
+      setSelection(null);
+      return;
+    }
+    setSelection(rect);
+    drawSelectionRect(rect);
+
+    // Crop the natural image to this canvas rect
+    const img = imgRef.current;
+    if (!img) return;
+    const canvas = canvasRef.current!;
+    const scaleX = img.naturalWidth / canvas.width;
+    const scaleY = img.naturalHeight / canvas.height;
+    const crop = document.createElement("canvas");
+    crop.width = Math.round(rect.w * scaleX);
+    crop.height = Math.round(rect.h * scaleY);
+    const cropCtx = crop.getContext("2d")!;
+    cropCtx.drawImage(
+      img,
+      Math.round(rect.x * scaleX), Math.round(rect.y * scaleY),
+      crop.width, crop.height,
+      0, 0, crop.width, crop.height,
+    );
+    setCroppedDataUrl(crop.toDataURL("image/jpeg", 0.92));
+  }, [isDrawing, startPt]);
+
+  function clearSelection() {
+    setSelection(null);
+    setCroppedDataUrl(null);
+    clearCanvas();
+    setElements(null);
+    setResults(null);
+    setSearchError("");
+  }
+
   function handleUrlChange(val: string) {
     setUrl(val);
     const trimmed = val.trim();
@@ -208,6 +331,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setResults(null);
     setIdentifyError("");
     setSearchError("");
+    clearSelection();
   }
 
   function handleIdentify() {
@@ -218,10 +342,13 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setResults(null);
     startIdentify(async () => {
       try {
+        const body = croppedDataUrl
+          ? { imageData: croppedDataUrl }
+          : { imageUrl: url.trim() };
         const res = await fetch("/api/identify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl: url.trim() }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Identification failed");
@@ -238,10 +365,13 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setSearchError("");
     startSearch(async () => {
       try {
+        const body = croppedDataUrl
+          ? { element, imageData: croppedDataUrl }
+          : { element, imageUrl: url.trim() };
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element, imageUrl: url.trim() }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Search failed");
@@ -322,24 +452,57 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
           )}
         </div>
 
-        {/* Image preview */}
+        {/* Image preview with region selection */}
         {preview && (
           <div className="max-w-2xl mx-auto mb-8">
-            <div className="relative w-full rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 flex items-center justify-center">
+            <div className="relative w-full rounded-xl overflow-hidden bg-black border border-neutral-800 flex items-center justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
+                ref={imgRef}
                 src={preview}
                 alt="Preview"
-                className="max-w-full max-h-[600px] w-auto object-contain"
+                className="max-w-full max-h-[600px] w-auto object-contain block"
                 onError={() => setPreview("")}
+                onLoad={syncCanvasSize}
+                draggable={false}
               />
+              {/* Canvas overlay for drawing selection */}
+              {!isIdentifying && (
+                <canvas
+                  ref={canvasRef}
+                  className="absolute inset-0 cursor-crosshair"
+                  style={{ touchAction: "none" }}
+                  onMouseDown={handleCanvasMouseDown}
+                  onMouseMove={handleCanvasMouseMove}
+                  onMouseUp={handleCanvasMouseUp}
+                  onMouseLeave={(e) => { if (isDrawing) handleCanvasMouseUp(e); }}
+                />
+              )}
               {isIdentifying && (
                 <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-8 h-8 border-2 border-stone-400 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-sm text-neutral-300">Identifying materials with Claude…</p>
+                    <p className="text-sm text-neutral-300">
+                      {croppedDataUrl ? "Identifying selection with Claude…" : "Identifying materials with Claude…"}
+                    </p>
                   </div>
                 </div>
+              )}
+            </div>
+            {/* Selection hint / clear button */}
+            <div className="flex items-center justify-between mt-2 px-1">
+              <p className="text-xs text-neutral-500">
+                {selection
+                  ? "Selection drawn — click Identify Materials or redraw to change"
+                  : "Drag to select a region, or identify the full image"}
+              </p>
+              {selection && (
+                <button
+                  onClick={clearSelection}
+                  className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors"
+                >
+                  Clear selection ✕
+                </button>
               )}
             </div>
           </div>
@@ -349,9 +512,19 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         {elements && elements.length > 0 && (
           <div className="max-w-2xl mx-auto mb-10">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
-                {elements.length} surface{elements.length !== 1 ? "s" : ""} identified — select one to search
-              </h2>
+              <div className="flex items-center gap-3">
+                {croppedDataUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={croppedDataUrl}
+                    alt="Selected region"
+                    className="w-12 h-12 rounded-lg object-cover border border-neutral-700 shrink-0"
+                  />
+                )}
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
+                  {elements.length} surface{elements.length !== 1 ? "s" : ""} identified — select one to search
+                </h2>
+              </div>
               {selectedId && (
                 <button
                   onClick={() => { setSelectedId(null); setResults(null); }}
@@ -389,9 +562,19 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         {results && results.length > 0 && (
           <div className="mb-20">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-neutral-100">
-                {results.length} matching tiles found
-              </h2>
+              <div className="flex items-center gap-3">
+                {croppedDataUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={croppedDataUrl}
+                    alt="Searched region"
+                    className="w-10 h-10 rounded-lg object-cover border border-neutral-700 shrink-0"
+                  />
+                )}
+                <h2 className="text-lg font-semibold text-neutral-100">
+                  {results.length} matching tiles found
+                </h2>
+              </div>
               <span className="text-xs text-neutral-500">Ranked by visual similarity</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
