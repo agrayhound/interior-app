@@ -325,12 +325,12 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         {/* Image preview */}
         {preview && (
           <div className="max-w-2xl mx-auto mb-8">
-            <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800">
+            <div className="relative w-full rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 flex items-center justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={preview}
                 alt="Preview"
-                className="w-full h-full object-cover"
+                className="max-w-full max-h-[600px] w-auto object-contain"
                 onError={() => setPreview("")}
               />
               {isIdentifying && (
