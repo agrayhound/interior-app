@@ -455,39 +455,42 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         {/* Image preview with region selection */}
         {preview && (
           <div className="max-w-2xl mx-auto mb-8">
-            <div className="relative w-full rounded-xl overflow-hidden bg-black border border-neutral-800 flex items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                ref={imgRef}
-                src={preview}
-                alt="Preview"
-                className="max-w-full max-h-[600px] w-auto object-contain block"
-                onError={() => setPreview("")}
-                onLoad={syncCanvasSize}
-                draggable={false}
-              />
-              {/* Canvas overlay for drawing selection */}
-              {!isIdentifying && (
-                <canvas
-                  ref={canvasRef}
-                  className="absolute inset-0 cursor-crosshair"
-                  style={{ touchAction: "none" }}
-                  onMouseDown={handleCanvasMouseDown}
-                  onMouseMove={handleCanvasMouseMove}
-                  onMouseUp={handleCanvasMouseUp}
-                  onMouseLeave={(e) => { if (isDrawing) handleCanvasMouseUp(e); }}
+            <div className="w-full rounded-xl overflow-hidden bg-black border border-neutral-800 flex items-center justify-center">
+              {/* Inner wrapper sized exactly to the image so canvas overlays it precisely */}
+              <div className="relative inline-block leading-[0]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  ref={imgRef}
+                  src={preview}
+                  alt="Preview"
+                  className="max-w-full max-h-[600px] w-auto object-contain block"
+                  onError={() => setPreview("")}
+                  onLoad={syncCanvasSize}
+                  draggable={false}
                 />
-              )}
-              {isIdentifying && (
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="w-8 h-8 border-2 border-stone-400 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-sm text-neutral-300">
-                      {croppedDataUrl ? "Identifying selection with Claude…" : "Identifying materials with Claude…"}
-                    </p>
+                {/* Canvas overlay for drawing selection — inset-0 now relative to image wrapper */}
+                {!isIdentifying && (
+                  <canvas
+                    ref={canvasRef}
+                    className="absolute inset-0 cursor-crosshair"
+                    style={{ touchAction: "none" }}
+                    onMouseDown={handleCanvasMouseDown}
+                    onMouseMove={handleCanvasMouseMove}
+                    onMouseUp={handleCanvasMouseUp}
+                    onMouseLeave={(e) => { if (isDrawing) handleCanvasMouseUp(e); }}
+                  />
+                )}
+                {isIdentifying && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-8 h-8 border-2 border-stone-400 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm text-neutral-300">
+                        {croppedDataUrl ? "Identifying selection with Claude…" : "Identifying materials with Claude…"}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
             {/* Selection hint / clear button */}
             <div className="flex items-center justify-between mt-2 px-1">
