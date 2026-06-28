@@ -294,7 +294,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setSelection(rect);
     drawSelectionRect(rect);
 
-    // Crop the natural image to this canvas rect
+    // Crop the natural image to this canvas rect.
+    // Image must be loaded via /api/image-proxy with crossOrigin="anonymous" or
+    // toDataURL() will throw a SecurityError on cross-origin images.
     const img = imgRef.current;
     if (!img) return;
     const canvas = canvasRef.current!;
@@ -310,7 +312,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
       crop.width, crop.height,
       0, 0, crop.width, crop.height,
     );
-    setCroppedDataUrl(crop.toDataURL("image/jpeg", 0.92));
+    try {
+      setCroppedDataUrl(crop.toDataURL("image/jpeg", 0.92));
+    } catch (err) {
+      console.error("[canvas crop] toDataURL failed — image may not be CORS-proxied yet:", err);
+    }
   }, [isDrawing, startPt]);
 
   function clearSelection() {
@@ -320,6 +326,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setElements(null);
     setResults(null);
     setSearchError("");
+    setSelectedId(null);
   }
 
   function handleUrlChange(val: string) {
@@ -334,6 +341,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     clearSelection();
   }
 
+  // Mode A: no selection — identify all surfaces, show element picker
   function handleIdentify() {
     if (!url.trim()) return;
     setIdentifyError("");
@@ -342,13 +350,10 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setResults(null);
     startIdentify(async () => {
       try {
-        const body = croppedDataUrl
-          ? { imageData: croppedDataUrl }
-          : { imageUrl: url.trim() };
         const res = await fetch("/api/identify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ imageUrl: url.trim() }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Identification failed");
@@ -359,19 +364,53 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     });
   }
 
+  // Mode B: selection drawn — identify crop, auto-pick best element, search directly
+  function handleSearchSelection() {
+    if (!croppedDataUrl) return;
+    setSearchError("");
+    setElements(null);
+    setSelectedId(null);
+    setResults(null);
+    startSearch(async () => {
+      try {
+        // Step 1: identify what's in the crop
+        const identifyRes = await fetch("/api/identify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageData: croppedDataUrl }),
+        });
+        const identifyData = await identifyRes.json();
+        if (!identifyRes.ok) throw new Error(identifyData.error ?? "Identification failed");
+
+        const found: Element[] = identifyData.elements ?? [];
+        const el = found.find((e) => e.is_tile) ?? found[0];
+        if (!el) throw new Error("No surfaces identified in the selected area. Try a larger selection.");
+
+        // Step 2: search with that element + the crop
+        const searchRes = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ element: el, imageData: croppedDataUrl }),
+        });
+        const searchData = await searchRes.json();
+        if (!searchRes.ok) throw new Error(searchData.error ?? "Search failed");
+        setResults(searchData.results ?? []);
+      } catch (e) {
+        setSearchError(e instanceof Error ? e.message : "Something went wrong");
+      }
+    });
+  }
+
   function handleSelectElement(element: Element) {
     setSelectedId(element.id);
     setResults(null);
     setSearchError("");
     startSearch(async () => {
       try {
-        const body = croppedDataUrl
-          ? { element, imageData: croppedDataUrl }
-          : { element, imageUrl: url.trim() };
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ element, imageUrl: url.trim() }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Search failed");
@@ -435,16 +474,21 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
               type="url"
               value={url}
               onChange={(e) => handleUrlChange(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleIdentify()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (croppedDataUrl) handleSearchSelection();
+                  else handleIdentify();
+                }
+              }}
               placeholder="Paste an image URL from Pinterest, Houzz, or anywhere…"
               className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-3.5 text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-stone-500 focus:ring-1 focus:ring-stone-500/50 transition-colors"
             />
             <button
-              onClick={handleIdentify}
-              disabled={isIdentifying || !url.trim()}
+              onClick={croppedDataUrl ? handleSearchSelection : handleIdentify}
+              disabled={isIdentifying || isSearching || !url.trim()}
               className="px-6 py-3.5 bg-stone-600 hover:bg-stone-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap"
             >
-              {isIdentifying ? "Identifying…" : "Identify Materials"}
+              {isIdentifying ? "Identifying…" : isSearching ? "Searching…" : croppedDataUrl ? "Search Selected Area" : "Identify Materials"}
             </button>
           </div>
           {identifyError && (
@@ -458,18 +502,20 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
             <div className="w-full rounded-xl overflow-hidden bg-black border border-neutral-800 flex items-center justify-center">
               {/* Inner wrapper sized exactly to the image so canvas overlays it precisely */}
               <div className="relative inline-block leading-[0]">
+                {/* crossOrigin="anonymous" + proxy src allows canvas.toDataURL() on cross-origin images */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   ref={imgRef}
-                  src={preview}
+                  src={`/api/image-proxy?url=${encodeURIComponent(preview)}`}
                   alt="Preview"
                   className="max-w-full max-h-[600px] w-auto object-contain block"
+                  crossOrigin="anonymous"
                   onError={() => setPreview("")}
                   onLoad={syncCanvasSize}
                   draggable={false}
                 />
                 {/* Canvas overlay for drawing selection — inset-0 now relative to image wrapper */}
-                {!isIdentifying && (
+                {!isIdentifying && !isSearching && (
                   <canvas
                     ref={canvasRef}
                     className="absolute inset-0 cursor-crosshair"
@@ -480,31 +526,43 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                     onMouseLeave={(e) => { if (isDrawing) handleCanvasMouseUp(e); }}
                   />
                 )}
-                {isIdentifying && (
+                {(isIdentifying || isSearching) && (
                   <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-8 h-8 border-2 border-stone-400 border-t-transparent rounded-full animate-spin" />
                       <p className="text-sm text-neutral-300">
-                        {croppedDataUrl ? "Identifying selection with Claude…" : "Identifying materials with Claude…"}
+                        {croppedDataUrl ? "Analysing selection…" : "Identifying materials with Claude…"}
                       </p>
                     </div>
                   </div>
                 )}
               </div>
             </div>
-            {/* Selection hint / clear button */}
-            <div className="flex items-center justify-between mt-2 px-1">
-              <p className="text-xs text-neutral-500">
-                {selection
-                  ? "Selection drawn — click Identify Materials or redraw to change"
-                  : "Drag to select a region, or identify the full image"}
-              </p>
-              {selection && (
+            {/* Selection hint / status bar */}
+            <div className="flex items-center justify-between mt-2 px-1 min-h-[20px]">
+              {croppedDataUrl ? (
+                <div className="flex items-center gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={croppedDataUrl}
+                    alt="Selected region"
+                    className="w-8 h-8 rounded object-cover border border-neutral-700 shrink-0"
+                  />
+                  <p className="text-xs text-stone-400 font-medium">Selection ready — click Search Selected Area</p>
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-500">
+                  {selection
+                    ? "Drawing… release to confirm"
+                    : "Draw a selection to search a specific area, or identify all surfaces below"}
+                </p>
+              )}
+              {croppedDataUrl && (
                 <button
                   onClick={clearSelection}
-                  className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors"
+                  className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors ml-3 shrink-0"
                 >
-                  Clear selection ✕
+                  Clear ✕
                 </button>
               )}
             </div>
