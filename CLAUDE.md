@@ -46,11 +46,11 @@ Vision analysis fields (populated by analyze_products.py):
 |---|---|---|---|
 | Stone Tile | GraphQL (Magento 2 PWA) | ✅ Complete | 446 |
 | Ames | Cheerio HTML (Magento) | ✅ Complete | 1404 |
-| Centura | Drupal JSON blob | 🔲 Not started | 0 |
-| Tierra Sol | Cheerio HTML (PHP) | 🔲 Not started | 0 |
-| C&S Tile | Cheerio HTML (WordPress) | 🔲 Not started | 0 |
-| Julian Tile | Squarespace (investigate ?format=json first) | 🔲 Not started | 0 |
-| Centanni | Wix warmup JSON | 🔲 Not started | 0 |
+| Centura | Drupal JSON API | ✅ Complete | 411 |
+| Tierra Sol | Playwright + CF cookie | ✅ Complete | 760 |
+| C&S Tile | Cheerio HTML (WordPress) | ✅ Complete | 832 |
+| Julian Tile | Squarespace ?format=json API | ✅ Complete | 645 |
+| Centanni | Wix SSR warmup JSON (centannitile.com) | ✅ Complete | 213 |
 ### Supplier IDs (used in supplier_id column)
 stone_tile, ames, centura, tierra_sol, cs_tile, julian, centanni
 ## Pipeline — How New Suppliers Get Added
@@ -181,28 +181,45 @@ final_score = 0.6 × semantic_score + 0.4 × clip_score
 - Real catalog: 446 ConfigurableProduct parents, ~6,092 SimpleProduct variants
 - Do not confuse variant count with product count
 ## Costs
-- Claude vision API: ~$0.003/image (claude-sonnet-4-6)
+- Claude vision API: ~$0.003/image at 600×600px (claude-sonnet-4-6)
+- **Large images (e.g. C&S Tile 2500×2000px) cost ~4–5× more** — analyze_products.py resizes to max 800px before sending (requires Pillow: `pip3 install Pillow`)
 - OpenAI embeddings: ~$0.000015/product (text-embedding-3-small)
 - CLIP embeddings: free (runs locally via @xenova/transformers)
 - Estimated cost for full 7-supplier catalog (~5,000 products): ~$15 vision + <$1 embeddings
+
 ## What's Next
-1. Centura scraper (Drupal JSON blob) — next priority
-2. Tierra Sol, C&S Tile, Julian Tile, Centanni
-3. Tierra Sol, C&S Tile, Julian Tile, Centanni
-4. Pinterest OAuth integration — UI built (/pinterest page + /api/pinterest proxy). Waiting on Pinterest app approval for v5 API (token returns code=3 "consumer type not supported"). Once approved, boards/pins/search flow is fully wired.
-5. Fal.ai room scene generation (show tile installed in a room)
-6. Expand beyond tiles: flooring, countertops, hardware
+1. Pinterest OAuth integration — UI built (/pinterest page + /api/pinterest proxy). Waiting on Pinterest app approval for v5 API (token returns code=3 "consumer type not supported"). Once approved, boards/pins/search flow is fully wired.
+4. Fal.ai room scene generation (show tile installed in a room)
+5. Expand beyond tiles: flooring, countertops, hardware
+
 ## Running the Full Pipeline for a New Supplier
 ```bash
 # 1. Scrape
 python3 scrapers/{supplier}_scraper.py
+
 # 2. Import
-node import_{supplier}.js
+node import_{supplier}.mjs
+
 # 3. Analyze (vision + text embeddings)
+# IMPORTANT: kill any stale analyze_products.py before starting — two running at once
+# doubles API credit burn and causes duplicate writes. The script has a self-abort
+# guard but it checks live Python processes, not shell wrappers.
+ps aux | grep analyze_products | grep python  # must return nothing
 python3 analyze_products.py
+# Re-running is safe: skips products WHERE analyzed_at IS NOT NULL
+
 # 4. CLIP embeddings
-node generate_clip_embeddings.mjs
+# Now only processes products WHERE clip_embedding IS NULL (skips already-done)
+node --env-file=.env generate_clip_embeddings.mjs
+
 # 5. Verify
 # Check products WHERE analyzed_at IS NULL = 0
 # Check product_embeddings WHERE clip_embedding IS NULL = only those with no images
 ```
+
+## Known Gotchas
+- **analyze_products.py stale process**: if it dies mid-run (credit exhaustion), the process may linger. Always `ps aux | grep analyze_products | grep python` before restarting.
+- **Anthropic credits**: large-image suppliers (like C&S Tile) exhaust credits faster. Top up before running — at ~$0.015/image for 2500px images, 800 products ≈ $12.
+- **generate_clip_embeddings.mjs previously re-ran all products** on every run (wasteful). Fixed to only process `clip_embedding IS NULL` rows. If you need to force a full re-run, temporarily remove that filter.
+- **dotenv**: both analyze_products.py and generate_clip_embeddings.mjs require .env to be loaded. Run from project root or use `--env-file=.env` flag for node.
+- **Python 3.9**: no `str | None` union syntax — use `Optional[str]` from typing.

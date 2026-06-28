@@ -12,6 +12,8 @@ Vision analysis pipeline for interior-app tile products.
 import asyncio
 import json
 import os
+import io
+import subprocess
 import sys
 import time
 import base64
@@ -20,15 +22,43 @@ import urllib.error
 from datetime import datetime, timezone
 from typing import Optional
 
+try:
+    from PIL import Image as PILImage
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_AVAILABLE = False
+
+# Guard: abort if another live Python process is running this script
+_self_pid = os.getpid()
+_ps = subprocess.run(['ps', 'aux'], capture_output=True, text=True).stdout
+_others = []
+for _line in _ps.splitlines():
+    _parts = _line.split()
+    if len(_parts) < 11:
+        continue
+    try:
+        _pid = int(_parts[1])
+    except ValueError:
+        continue
+    _cmd = _parts[10]  # actual executable (column 11)
+    _args = ' '.join(_parts[11:])
+    if _pid != _self_pid and 'python' in _cmd.lower() and 'analyze_products.py' in _args:
+        _others.append(str(_pid))
+if _others:
+    print(f"ERROR: analyze_products.py is already running (PID {', '.join(_others)}). Aborting to avoid duplicate API calls.")
+    sys.exit(1)
+
 import httpx
 import anthropic
 from openai import OpenAI
+from dotenv import load_dotenv
+load_dotenv()
 
 # ── Config ──────────────────────────────────────────────────────────────────
-SUPABASE_URL = "https://dnghimclwgjmtnesxdmo.supabase.co"
+SUPABASE_URL = os.environ['SUPABASE_URL']
 SUPABASE_KEY = os.environ['SUPABASE_SERVICE_KEY']
-ANTHROPIC_API_KEY = "os.environ['ANTHROPIC_API_KEY']"
-OPENAI_API_KEY = "os.environ['OPENAI_API_KEY']"
+ANTHROPIC_API_KEY = os.environ['ANTHROPIC_API_KEY']
+OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
 
 CLAUDE_MODEL = "claude-sonnet-4-6"
 EMBED_MODEL = "text-embedding-3-small"
@@ -152,7 +182,20 @@ async def fetch_image_b64(client: httpx.AsyncClient, url: str) -> tuple[str, str
     ct = r.headers.get("content-type", "image/jpeg").split(";")[0].strip()
     if ct not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
         ct = "image/jpeg"
-    return base64.standard_b64encode(r.content).decode(), ct
+    data = r.content
+    # Resize images larger than 800px on longest side to cut token cost
+    if _PIL_AVAILABLE and len(data) > 80_000:
+        try:
+            img = PILImage.open(io.BytesIO(data)).convert("RGB")
+            if max(img.size) > 800:
+                img.thumbnail((800, 800), PILImage.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                data = buf.getvalue()
+                ct = "image/jpeg"
+        except Exception:
+            pass  # fall through to original data
+    return base64.standard_b64encode(data).decode(), ct
 
 
 # ── Claude vision analysis ───────────────────────────────────────────────────

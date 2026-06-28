@@ -5,8 +5,10 @@
  */
 
 import { CLIPVisionModelWithProjection, AutoProcessor, RawImage, env } from "@xenova/transformers";
+import { config } from "dotenv";
+config();
 
-const SUPABASE_URL = "https://dnghimclwgjmtnesxdmo.supabase.co";
+const SUPABASE_URL = process.env.SUPABASE_URL ?? "https://dnghimclwgjmtnesxdmo.supabase.co";
 const KEY = process.env.SUPABASE_SERVICE_KEY;
 const H     = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
 const HMIN  = { ...H, Prefer: "return=minimal" };
@@ -77,9 +79,12 @@ async function embedUrl(imageUrl) {
 
 // ── Build work list ───────────────────────────────────────────────────────────
 
-// 1. All product_embeddings rows (gives us the product_ids to update)
-const embedRows = await supabaseGet("product_embeddings", { select: "id,product_id" });
-console.log(`product_embeddings rows: ${embedRows.length}`);
+// 1. Only rows missing a CLIP embedding (skip already-done products)
+const embedRows = await supabaseGet("product_embeddings", {
+  select: "id,product_id",
+  clip_embedding: "is.null",
+});
+console.log(`product_embeddings rows needing CLIP: ${embedRows.length}`);
 
 // 2. Primary images for all these products (is_primary=true, fallback position=0)
 const allProductIds = embedRows.map(r => r.product_id);
