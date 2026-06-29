@@ -198,6 +198,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [isSearching, startSearch] = useTransition();
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [searchError, setSearchError] = useState("");
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [resultOffset, setResultOffset] = useState(0);
+  // Stored query params so load more can re-use them without re-analysing
+  const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string } | null>(null);
 
   // Region selection state
   const imgRef = useRef<HTMLImageElement>(null);
@@ -325,6 +330,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setResults(null);
     setSearchError("");
     setSelectedId(null);
+    setHasMore(false);
+    setResultOffset(0);
+    lastQuery.current = null;
   }
 
   function handleUrlChange(val: string) {
@@ -336,6 +344,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setResults(null);
     setIdentifyError("");
     setSearchError("");
+    setHasMore(false);
+    setResultOffset(0);
+    lastQuery.current = null;
     clearSelection();
   }
 
@@ -369,6 +380,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setElements(null);
     setSelectedId(null);
     setResults(null);
+    setHasMore(false);
+    setResultOffset(0);
+    lastQuery.current = null;
     startSearch(async () => {
       try {
         // Step 1: identify what's in the crop
@@ -392,6 +406,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         });
         const searchData = await searchRes.json();
         if (!searchRes.ok) throw new Error(searchData.error ?? "Search failed");
+        lastQuery.current = { element: el, imageData: croppedDataUrl };
+        setResultOffset(10);
+        setHasMore(searchData.hasMore ?? false);
         setResults(searchData.results ?? []);
       } catch (e) {
         setSearchError(e instanceof Error ? e.message : "Something went wrong");
@@ -403,20 +420,49 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setSelectedId(element.id);
     setResults(null);
     setSearchError("");
+    setHasMore(false);
+    setResultOffset(0);
+    lastQuery.current = null;
     startSearch(async () => {
       try {
+        const imageUrl = url.trim();
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element, imageUrl: url.trim() }),
+          body: JSON.stringify({ element, imageUrl }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Search failed");
+        lastQuery.current = { element, imageUrl };
+        setResultOffset(10);
+        setHasMore(data.hasMore ?? false);
         setResults(data.results ?? []);
       } catch (e) {
         setSearchError(e instanceof Error ? e.message : "Something went wrong");
       }
     });
+  }
+
+  async function handleLoadMore() {
+    if (!lastQuery.current || isLoadingMore) return;
+    setIsLoadingMore(true);
+    setSearchError("");
+    try {
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...lastQuery.current, offset: resultOffset }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Search failed");
+      setResults((prev) => [...(prev ?? []), ...(data.results ?? [])]);
+      setResultOffset((o) => o + 10);
+      setHasMore(data.hasMore ?? false);
+    } catch (e) {
+      setSearchError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setIsLoadingMore(false);
+    }
   }
 
   return (
@@ -641,6 +687,24 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                 <TileCard key={tile.id ?? tile.sku} tile={tile} />
               ))}
             </div>
+            {hasMore && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={isLoadingMore}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-neutral-300 transition-all duration-200"
+                >
+                  {isLoadingMore ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border border-neutral-400 border-t-transparent rounded-full animate-spin" />
+                      Loading…
+                    </>
+                  ) : (
+                    "Load more"
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
