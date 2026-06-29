@@ -134,8 +134,8 @@ function ElementCard({
 function TileCard({ tile }: { tile: SearchResult | Tile }) {
   const r = tile as SearchResult;
   const price = tile.price_cad_min ? `CA$${tile.price_cad_min.toFixed(2)}/ft²` : null;
-  return (
-    <div className="group bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden hover:border-neutral-600 transition-all duration-200 hover:shadow-xl hover:shadow-black/40">
+  const card = (
+    <div className="group bg-neutral-900 border border-white/20 rounded-2xl overflow-hidden transition-all duration-200 hover:border-white/60 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/40 cursor-pointer">
       <div className="relative aspect-square bg-neutral-800 overflow-hidden">
         {tile.thumbnail_url ? (
           <Image
@@ -168,21 +168,19 @@ function TileCard({ tile }: { tile: SearchResult | Tile }) {
             ))}
           </div>
         )}
-        <div className="flex items-center justify-between pt-1">
-          {price && <span className="text-sm font-medium text-neutral-300">{price}</span>}
-          {r.source_url && (
-            <a
-              href={r.source_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-medium text-stone-400 hover:text-white transition-colors"
-            >
-              View Product →
-            </a>
-          )}
-        </div>
+        {price && (
+          <p className="text-sm font-medium text-neutral-300 pt-1">{price}</p>
+        )}
       </div>
     </div>
+  );
+
+  if (!r.source_url) return card;
+
+  return (
+    <a href={r.source_url} target="_blank" rel="noopener noreferrer" className="block">
+      {card}
+    </a>
   );
 }
 
