@@ -3,7 +3,8 @@ const nextConfig = {
   experimental: {
     // Prevent webpack from bundling native Node addons used by @xenova/transformers.
     // onnxruntime-node ships a prebuilt .node binary that must be loaded at runtime.
-    serverComponentsExternalPackages: ["@xenova/transformers", "onnxruntime-node"],
+    // sharp is a native addon — must not be bundled by webpack (same as onnxruntime-node)
+    serverComponentsExternalPackages: ["@xenova/transformers", "onnxruntime-node", "sharp"],
   },
   images: {
     remotePatterns: [

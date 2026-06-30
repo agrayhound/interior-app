@@ -85,7 +85,7 @@ async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: num
     const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
     return { r, g, b, hex, chroma };
   } catch (e) {
-    console.error("[extractDominantColor] failed:", e);
+    console.error("[extractDominantColor] SHARP FAILED:", e instanceof Error ? `${e.name}: ${e.message}` : String(e));
     return null;
   }
 }
@@ -196,10 +196,11 @@ export async function POST(req: NextRequest) {
     const fetchCount = CANDIDATE_POOL;
 
     // Pixel-accurate color extraction from the crop image (when available).
-    // This overrides Claude's color_hexes which can be inaccurate on tightly-cropped tiles.
+    console.log(`[search] color-fix-version=3 imageData=${imageData ? `present(len=${imageData.length})` : "absent"}`);
     let pixelColor: { r: number; g: number; b: number; hex: string; chroma: number } | null = null;
     if (imageData) {
       pixelColor = await extractDominantColorFromBase64(imageData);
+      console.log(`[search] pixel extraction result: ${pixelColor ? `${pixelColor.hex} chroma=${pixelColor.chroma}` : "NULL (sharp failed or no colorful cluster)"}`);
     }
 
     // Safety fallback: use whichever source has higher chroma (stronger color signal).
