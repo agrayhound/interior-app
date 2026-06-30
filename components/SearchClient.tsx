@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef, useCallback } from "react";
+import { useState, useTransition, useRef, useCallback, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { Tile } from "@/lib/getFeaturedTiles";
@@ -205,6 +205,42 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [colorWeight, setColorWeight] = useState(0.5);
   // Stored query params so load more can re-use them without re-analysing
   const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
+  const rerankTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Re-search with new colorWeight when slider moves after results are visible
+  useEffect(() => {
+    if (!lastQuery.current) return;
+    if (rerankTimer.current) clearTimeout(rerankTimer.current);
+    rerankTimer.current = setTimeout(() => {
+      const q = lastQuery.current;
+      if (!q) return;
+      const query = { ...q, colorWeight };
+      lastQuery.current = query;
+      setResults(null);
+      setHasMore(false);
+      setResultOffset(0);
+      setSearchError("");
+      startSearch(async () => {
+        try {
+          const res = await fetch("/api/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ element: query.element, imageUrl: query.imageUrl, imageData: query.imageData, colorWeight, offset: 0 }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? "Search failed");
+          lastQuery.current = query;
+          setResultOffset(10);
+          setHasMore(data.hasMore ?? false);
+          setResults(data.results ?? []);
+        } catch (e) {
+          setSearchError(e instanceof Error ? e.message : "Something went wrong");
+        }
+      });
+    }, 400);
+    return () => { if (rerankTimer.current) clearTimeout(rerankTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorWeight]);
 
   // Region selection state
   const imgRef = useRef<HTMLImageElement>(null);

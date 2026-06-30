@@ -95,8 +95,11 @@ export async function POST(req: NextRequest) {
     }
 
     const embedText = buildEmbedText(element);
-    const fetchCount = offset + PAGE_SIZE;
     const clampedColorWeight = Math.max(0, Math.min(1, colorWeight));
+    // Fetch a larger pool when color reranking is active so color-accurate tiles
+    // that aren't top semantic matches can still be surfaced after reranking
+    const CANDIDATE_POOL = clampedColorWeight > 0 ? Math.max(offset + 100, 100) : offset + PAGE_SIZE;
+    const fetchCount = CANDIDATE_POOL;
 
     // Parse query dominant color from element.color_hexes (provided by /api/identify)
     const queryHex = element.color_hexes?.[0] ?? null;
@@ -137,31 +140,37 @@ export async function POST(req: NextRequest) {
       allResults = data;
     }
 
-    const page = (allResults ?? []).slice(offset) as Array<{
+    // Normalize RPC field names: product_id → id, colours → color_palette
+    // When color reranking, we fetched up to 100 candidates — rerank all of them,
+    // then slice out the requested page so the best color matches float up.
+    const allNormalized = (allResults ?? []).map((r: Record<string, unknown>) => ({
+      ...r,
+      id: (r.id ?? r.product_id) as number,
+      color_palette: (r.color_palette ?? r.colours ?? []) as string[],
+    })) as Array<{
       id: number; name: string; sku: string; source_url: string;
       thumbnail_url: string; price_cad_min: number; supplier_id: string;
       style_tags: string[]; material_look: string; color_palette: string[];
       similarity: number;
     }>;
 
-    // Color reranking — blend hybrid score with color proximity.
-    // Primary: RGB distance from product_colors.json (offline PIL extraction).
-    // Fallback when no queryRgb or product has no color data: text cosine similarity.
-    let reranked = page;
-    if (clampedColorWeight > 0 && page.length > 0) {
+    // Color reranking — blend hybrid score with color proximity across full candidate pool,
+    // then slice the requested page out of the reranked list.
+    let reranked = allNormalized;
+    if (clampedColorWeight > 0 && allNormalized.length > 0) {
       try {
         if (queryRgb) {
           // RGB distance path — O(n) in-memory, no extra API calls
-          reranked = page.map((r) => {
+          reranked = allNormalized.map((r) => {
             const cs = rgbColorScore(queryRgb.r, queryRgb.g, queryRgb.b, r.id);
-            const colorScore = cs ?? 0.5; // neutral score for products without color data
+            const colorScore = cs ?? 0.5;
             const blended = (1 - clampedColorWeight) * r.similarity + clampedColorWeight * colorScore;
             return { ...r, similarity: blended, dominant_color_hex: productColors[String(r.id)] ?? null };
           }).sort((a, b) => b.similarity - a.similarity);
         } else if (element.colors.length > 0) {
-          // Text embedding fallback — one batch API call for 1 + n embeddings
+          // Text embedding fallback
           const queryColorText = `Colors: ${element.colors.join(", ")}`;
-          const resultColorTexts = page.map(
+          const resultColorTexts = allNormalized.map(
             (r) => `Colors: ${(r.color_palette ?? []).join(", ") || "unknown"}`
           );
           const colorEmbedRes = await openai.embeddings.create({
@@ -169,7 +178,7 @@ export async function POST(req: NextRequest) {
             input: [queryColorText, ...resultColorTexts],
           });
           const queryColorVec = colorEmbedRes.data[0].embedding;
-          reranked = page.map((r, i) => {
+          reranked = allNormalized.map((r, i) => {
             const colorSim = cosineSim(queryColorVec, colorEmbedRes.data[i + 1].embedding);
             const blended = (1 - clampedColorWeight) * r.similarity + clampedColorWeight * colorSim;
             return { ...r, similarity: blended };
@@ -180,12 +189,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const page = reranked.slice(offset, offset + PAGE_SIZE);
+    const hasMore = reranked.length > offset + PAGE_SIZE;
+
     return NextResponse.json({
       embedText,
       usedHybrid: !!clipVector,
       usedRgbColor: !!queryRgb,
-      results: reranked,
-      hasMore: page.length === PAGE_SIZE,
+      results: page,
+      hasMore,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
