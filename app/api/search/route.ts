@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
 
     // Pixel-accurate color extraction from the crop image (when available).
     // This overrides Claude's color_hexes which can be inaccurate on tightly-cropped tiles.
-    let pixelColor: { r: number; g: number; b: number; hex: string } | null = null;
+    let pixelColor: { r: number; g: number; b: number; hex: string; chroma: number } | null = null;
     if (imageData) {
       pixelColor = await extractDominantColorFromBase64(imageData);
     }
