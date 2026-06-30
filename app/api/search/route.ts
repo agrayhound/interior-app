@@ -1,9 +1,89 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import sharp from "sharp";
 import { supabase } from "@/lib/supabase";
 import productColorsRaw from "@/data/product_colors.json";
 
 const productColors = productColorsRaw as Record<string, string>;
+
+// Pixel-accurate dominant color extraction — mirrors extract_colors.py logic.
+// Uses sharp (available as a Next.js transitive dep) so no new packages needed.
+async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: number; g: number; b: number; hex: string } | null> {
+  try {
+    const m = dataUrl.match(/^data:image\/[a-z]+;base64,(.+)$/);
+    if (!m) return null;
+    const buf = Buffer.from(m[1], "base64");
+
+    // Get image dimensions first so we can center-crop
+    const meta = await sharp(buf).metadata();
+    const w = meta.width ?? 100;
+    const h = meta.height ?? 100;
+
+    // Center-crop to middle 60% width × 70% height, then resize to 100×100
+    const left = Math.floor(w * 0.20);
+    const top  = Math.floor(h * 0.15);
+    const cropW = Math.floor(w * 0.60);
+    const cropH = Math.floor(h * 0.70);
+
+    const { data: pixels } = await sharp(buf)
+      .extract({ left, top, width: cropW, height: cropH })
+      .resize(100, 100, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    // Bin pixels into coarse buckets (6 bits per channel → 64³ = 262k buckets,
+    // but we use 5 bits → 32³ = ~32k, good balance of resolution vs speed)
+    const BITS = 5;
+    const SHIFT = 8 - BITS;
+    const SIZE = 1 << BITS; // 32
+    const bins = new Map<number, { count: number; r: number; g: number; b: number }>();
+
+    for (let i = 0; i < pixels.length; i += 3) {
+      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+      const key = ((r >> SHIFT) * SIZE * SIZE) + ((g >> SHIFT) * SIZE) + (b >> SHIFT);
+      const existing = bins.get(key);
+      if (existing) {
+        existing.count++;
+        existing.r += r; existing.g += g; existing.b += b;
+      } else {
+        bins.set(key, { count: 1, r, g, b });
+      }
+    }
+
+    // Filter and find best cluster
+    let bestColorful: { count: number; r: number; g: number; b: number } | null = null;
+    let bestVivid:    { chroma: number; r: number; g: number; b: number } | null = null;
+
+    for (const bin of bins.values()) {
+      const ar = Math.round(bin.r / bin.count);
+      const ag = Math.round(bin.g / bin.count);
+      const ab = Math.round(bin.b / bin.count);
+      const total  = ar + ag + ab;
+      const chroma = Math.max(ar, ag, ab) - Math.min(ar, ag, ab);
+
+      if (!bestVivid || chroma > bestVivid.chroma) {
+        bestVivid = { chroma, r: ar, g: ag, b: ab };
+      }
+
+      if (total > 45 && total < 680 && chroma >= 25) {
+        if (!bestColorful || bin.count > bestColorful.count) {
+          bestColorful = { count: bin.count, r: ar, g: ag, b: ab };
+        }
+      }
+    }
+
+    const chosen = bestColorful ?? bestVivid;
+    if (!chosen) return null;
+
+    const { r, g, b } = chosen;
+    const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+    return { r, g, b, hex };
+  } catch (e) {
+    console.error("[extractDominantColor] failed:", e);
+    return null;
+  }
+}
 
 const MODAL_CLIP_URL = "https://agrayhound--clip-embedder-embed-endpoint.modal.run";
 const MAX_RGB_DIST = 441.67; // sqrt(255² × 3) — max possible RGB distance
@@ -110,10 +190,19 @@ export async function POST(req: NextRequest) {
     const CANDIDATE_POOL = clampedColorWeight > 0 ? Math.max(offset + 100, 100) : offset + PAGE_SIZE;
     const fetchCount = CANDIDATE_POOL;
 
-    // Parse query dominant color from element.color_hexes (provided by /api/identify)
-    const queryHex = element.color_hexes?.[0] ?? null;
+    // Pixel-accurate color extraction from the crop image (when available).
+    // This overrides Claude's color_hexes which can be inaccurate on tightly-cropped tiles.
+    let pixelColor: { r: number; g: number; b: number; hex: string } | null = null;
+    if (imageData) {
+      pixelColor = await extractDominantColorFromBase64(imageData);
+    }
+
+    // Use pixel extraction if available, fall back to Claude's color_hexes, then nothing
+    const claudeHex = element.color_hexes?.[0] ?? null;
+    const queryHex = pixelColor?.hex ?? claudeHex ?? null;
     const queryRgb = queryHex ? hexToRgb(queryHex) : null;
-    console.log(`[search] queryHex=${queryHex ?? "(none — no color_hexes, will use text cosine fallback)"} queryRgb=${queryRgb ? JSON.stringify(queryRgb) : "null"}`);
+    console.log(`[search] color source: pixel=${pixelColor?.hex ?? "failed"} claude=${claudeHex ?? "none"} → using=${queryHex ?? "none (text cosine fallback)"}`);
+    console.log(`[search] queryRgb=${queryRgb ? JSON.stringify(queryRgb) : "null"}`);
 
     // Skip CLIP for base64 data URLs — Modal endpoint requires a fetchable URL
     const clipSource = imageData ? null : imageUrl;
