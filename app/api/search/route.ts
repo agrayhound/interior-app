@@ -8,7 +8,7 @@ const productColors = productColorsRaw as Record<string, string>;
 
 // Pixel-accurate dominant color extraction — mirrors extract_colors.py logic.
 // Uses sharp (available as a Next.js transitive dep) so no new packages needed.
-async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: number; g: number; b: number; hex: string } | null> {
+async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: number; g: number; b: number; hex: string; chroma: number } | null> {
   try {
     const m = dataUrl.match(/^data:image\/[a-z]+;base64,(.+)$/);
     if (!m) return null;
@@ -32,8 +32,7 @@ async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: num
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    // Bin pixels into coarse buckets (6 bits per channel → 64³ = 262k buckets,
-    // but we use 5 bits → 32³ = ~32k, good balance of resolution vs speed)
+    // Bin pixels into coarse RGB buckets (5 bits per channel → 32³ buckets)
     const BITS = 5;
     const SHIFT = 8 - BITS;
     const SIZE = 1 << BITS; // 32
@@ -51,8 +50,12 @@ async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: num
       }
     }
 
-    // Filter and find best cluster
-    let bestColorful: { count: number; r: number; g: number; b: number } | null = null;
+    // Score clusters by count × chroma rather than pure count.
+    // Pure-count always picks neutral grout (many pixels, low chroma) over the
+    // actual tile color (fewer pixels, high chroma). count×chroma lets a vivid
+    // tile cluster (count=200, chroma=103 → 20600) beat a grout cluster
+    // (count=536, chroma=34 → 18224).
+    let bestColorful: { score: number; chroma: number; r: number; g: number; b: number } | null = null;
     let bestVivid:    { chroma: number; r: number; g: number; b: number } | null = null;
 
     for (const bin of Array.from(bins.values())) {
@@ -67,8 +70,9 @@ async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: num
       }
 
       if (total > 45 && total < 680 && chroma >= 25) {
-        if (!bestColorful || bin.count > bestColorful.count) {
-          bestColorful = { count: bin.count, r: ar, g: ag, b: ab };
+        const score = bin.count * chroma; // weight vividness, not just frequency
+        if (!bestColorful || score > bestColorful.score) {
+          bestColorful = { score, chroma, r: ar, g: ag, b: ab };
         }
       }
     }
@@ -77,8 +81,9 @@ async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: num
     if (!chosen) return null;
 
     const { r, g, b } = chosen;
+    const chroma = Math.max(r, g, b) - Math.min(r, g, b);
     const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
-    return { r, g, b, hex };
+    return { r, g, b, hex, chroma };
   } catch (e) {
     console.error("[extractDominantColor] failed:", e);
     return null;
@@ -197,11 +202,22 @@ export async function POST(req: NextRequest) {
       pixelColor = await extractDominantColorFromBase64(imageData);
     }
 
-    // Use pixel extraction if available, fall back to Claude's color_hexes, then nothing
+    // Safety fallback: use whichever source has higher chroma (stronger color signal).
+    // Pixel extraction using count×chroma scoring should correctly identify vivid tile
+    // colors, but if the crop is dominated by grout/neutral the pixel chroma will be low.
+    // Claude's color_hexes, while not pixel-accurate, is semantically aware and may have
+    // a stronger signal — so prefer whichever is more saturated.
     const claudeHex = element.color_hexes?.[0] ?? null;
-    const queryHex = pixelColor?.hex ?? claudeHex ?? null;
+    const claudeRgb = claudeHex ? hexToRgb(claudeHex) : null;
+    const claudeChroma = claudeRgb ? Math.max(claudeRgb.r, claudeRgb.g, claudeRgb.b) - Math.min(claudeRgb.r, claudeRgb.g, claudeRgb.b) : 0;
+    const pixelChroma = pixelColor?.chroma ?? 0;
+
+    // Prefer pixel when it's at least as saturated as Claude's estimate;
+    // fall back to Claude when Claude has a clearly stronger color signal
+    const usePixel = pixelColor !== null && pixelChroma >= claudeChroma;
+    const queryHex = usePixel ? pixelColor!.hex : (claudeHex ?? pixelColor?.hex ?? null);
     const queryRgb = queryHex ? hexToRgb(queryHex) : null;
-    console.log(`[search] color source: pixel=${pixelColor?.hex ?? "failed"} claude=${claudeHex ?? "none"} → using=${queryHex ?? "none (text cosine fallback)"}`);
+    console.log(`[search] color source: pixel=${pixelColor?.hex ?? "failed"}(chroma=${pixelChroma}) claude=${claudeHex ?? "none"}(chroma=${claudeChroma}) → using=${usePixel ? "pixel" : "claude"} hex=${queryHex ?? "none"}`);
     console.log(`[search] queryRgb=${queryRgb ? JSON.stringify(queryRgb) : "null"}`);
 
     // Skip CLIP for base64 data URLs — Modal endpoint requires a fetchable URL
