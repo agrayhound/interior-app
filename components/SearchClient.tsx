@@ -202,8 +202,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [resultOffset, setResultOffset] = useState(0);
+  const [colorWeight, setColorWeight] = useState(0.5);
   // Stored query params so load more can re-use them without re-analysing
-  const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string } | null>(null);
+  const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
 
   // Region selection state
   const imgRef = useRef<HTMLImageElement>(null);
@@ -403,11 +404,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const searchRes = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element: el, imageData: croppedDataUrl }),
+          body: JSON.stringify({ element: el, imageData: croppedDataUrl, colorWeight }),
         });
         const searchData = await searchRes.json();
         if (!searchRes.ok) throw new Error(searchData.error ?? "Search failed");
-        lastQuery.current = { element: el, imageData: croppedDataUrl };
+        lastQuery.current = { element: el, imageData: croppedDataUrl, colorWeight };
         setResultOffset(10);
         setHasMore(searchData.hasMore ?? false);
         setResults(searchData.results ?? []);
@@ -430,11 +431,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element, imageUrl }),
+          body: JSON.stringify({ element, imageUrl, colorWeight }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Search failed");
-        lastQuery.current = { element, imageUrl };
+        lastQuery.current = { element, imageUrl, colorWeight };
         setResultOffset(10);
         setHasMore(data.hasMore ?? false);
         setResults(data.results ?? []);
@@ -611,6 +612,24 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                 </button>
               )}
             </div>
+
+            {/* Color weight slider — set before searching */}
+            {!results && (
+              <div className="flex items-center gap-3 mt-3 px-1">
+                <span className="text-xs text-neutral-500 w-14 text-right shrink-0">Style</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={colorWeight}
+                  onChange={(e) => setColorWeight(parseFloat(e.target.value))}
+                  className="flex-1 accent-stone-400 cursor-pointer"
+                />
+                <span className="text-xs text-neutral-500 w-14 shrink-0">Color</span>
+                <span className="text-xs text-neutral-600 w-8 text-right shrink-0">{Math.round(colorWeight * 100)}%</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -681,7 +700,21 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                   {results.length} matching tiles found
                 </h2>
               </div>
-              <span className="text-xs text-neutral-500">Ranked by visual similarity</span>
+              {/* Color weight slider */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-neutral-500 whitespace-nowrap">Style</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={colorWeight}
+                  onChange={(e) => setColorWeight(parseFloat(e.target.value))}
+                  className="w-24 accent-stone-400 cursor-pointer"
+                  title={`Color weight: ${Math.round(colorWeight * 100)}%`}
+                />
+                <span className="text-xs text-neutral-500 whitespace-nowrap">Color</span>
+              </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {results.map((tile) => (

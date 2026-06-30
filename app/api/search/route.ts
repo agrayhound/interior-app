@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabase } from "@/lib/supabase";
+import productColorsRaw from "@/data/product_colors.json";
+
+const productColors = productColorsRaw as Record<string, string>;
 
 const MODAL_CLIP_URL = "https://agrayhound--clip-embedder-embed-endpoint.modal.run";
+const MAX_RGB_DIST = 441.67; // sqrt(255² × 3) — max possible RGB distance
 
 async function fetchClipEmbedding(imageUrl: string): Promise<number[] | null> {
   try {
@@ -44,6 +48,26 @@ function buildEmbedText(element: Element): string {
   ].filter(Boolean).join(" ");
 }
 
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!m) return null;
+  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+
+function rgbColorScore(
+  qr: number, qg: number, qb: number,
+  productId: number
+): number | null {
+  const hex = productColors[String(productId)];
+  if (!hex) return null;
+  const c = hexToRgb(hex);
+  if (!c) return null;
+  const dist = Math.sqrt(
+    Math.pow(qr - c.r, 2) + Math.pow(qg - c.g, 2) + Math.pow(qb - c.b, 2)
+  );
+  return 1 - dist / MAX_RGB_DIST;
+}
+
 function cosineSim(a: number[], b: number[]): number {
   let dot = 0, na = 0, nb = 0;
   for (let i = 0; i < a.length; i++) {
@@ -63,16 +87,20 @@ export async function POST(req: NextRequest) {
       imageUrl?: string;
       imageData?: string;
       offset?: number;
+      colorWeight?: number;
     };
-    const { element, imageUrl, imageData, offset = 0 } = body;
+    const { element, imageUrl, imageData, offset = 0, colorWeight = 0.5 } = body;
     if (!element) {
       return NextResponse.json({ error: "element required" }, { status: 400 });
     }
 
     const embedText = buildEmbedText(element);
-
-    // Fetch offset+PAGE_SIZE rows then slice — avoids requiring a DB migration for OFFSET support
     const fetchCount = offset + PAGE_SIZE;
+    const clampedColorWeight = Math.max(0, Math.min(1, colorWeight));
+
+    // Parse query dominant color from element.color_hexes (provided by /api/identify)
+    const queryHex = element.color_hexes?.[0] ?? null;
+    const queryRgb = queryHex ? hexToRgb(queryHex) : null;
 
     // Skip CLIP for base64 data URLs — Modal endpoint requires a fetchable URL
     const clipSource = imageData ? null : imageUrl;
@@ -84,14 +112,12 @@ export async function POST(req: NextRequest) {
 
     let allResults;
     if (clipVector) {
-      // Hybrid: 0.6 × semantic + 0.4 × CLIP
       const { data, error } = await supabase.rpc("search_similar_tiles_hybrid", {
         query_embedding: textVector,
         query_clip_embedding: clipVector,
         match_count: fetchCount,
       });
       if (error) {
-        // Hybrid RPC not yet deployed — fall back to semantic only
         console.warn("[/api/search] hybrid RPC unavailable, falling back:", error.message);
         const { data: fallback, error: e2 } = await supabase.rpc("search_similar_tiles", {
           query_embedding: textVector,
@@ -118,26 +144,37 @@ export async function POST(req: NextRequest) {
       similarity: number;
     }>;
 
-    // Color reranking — batch-embed query colors + each result's color palette
-    // in a single OpenAI call, then blend: 0.5 × rpc_score + 0.5 × color_sim.
-    // Uses text embedding cosine similarity so any color description works
-    // without a hardcoded color→hex map.
+    // Color reranking — blend hybrid score with color proximity.
+    // Primary: RGB distance from product_colors.json (offline PIL extraction).
+    // Fallback when no queryRgb or product has no color data: text cosine similarity.
     let reranked = page;
-    if (element.colors.length > 0 && page.length > 0) {
+    if (clampedColorWeight > 0 && page.length > 0) {
       try {
-        const queryColorText = `Colors: ${element.colors.join(", ")}`;
-        const resultColorTexts = page.map(
-          (r) => `Colors: ${(r.color_palette ?? []).join(", ") || "unknown"}`
-        );
-        const colorEmbedRes = await openai.embeddings.create({
-          model: "text-embedding-3-small",
-          input: [queryColorText, ...resultColorTexts],
-        });
-        const queryColorVec = colorEmbedRes.data[0].embedding;
-        reranked = page.map((r, i) => {
-          const colorSim = cosineSim(queryColorVec, colorEmbedRes.data[i + 1].embedding);
-          return { ...r, similarity: 0.5 * r.similarity + 0.5 * colorSim };
-        }).sort((a, b) => b.similarity - a.similarity);
+        if (queryRgb) {
+          // RGB distance path — O(n) in-memory, no extra API calls
+          reranked = page.map((r) => {
+            const cs = rgbColorScore(queryRgb.r, queryRgb.g, queryRgb.b, r.id);
+            const colorScore = cs ?? 0.5; // neutral score for products without color data
+            const blended = (1 - clampedColorWeight) * r.similarity + clampedColorWeight * colorScore;
+            return { ...r, similarity: blended, dominant_color_hex: productColors[String(r.id)] ?? null };
+          }).sort((a, b) => b.similarity - a.similarity);
+        } else if (element.colors.length > 0) {
+          // Text embedding fallback — one batch API call for 1 + n embeddings
+          const queryColorText = `Colors: ${element.colors.join(", ")}`;
+          const resultColorTexts = page.map(
+            (r) => `Colors: ${(r.color_palette ?? []).join(", ") || "unknown"}`
+          );
+          const colorEmbedRes = await openai.embeddings.create({
+            model: "text-embedding-3-small",
+            input: [queryColorText, ...resultColorTexts],
+          });
+          const queryColorVec = colorEmbedRes.data[0].embedding;
+          reranked = page.map((r, i) => {
+            const colorSim = cosineSim(queryColorVec, colorEmbedRes.data[i + 1].embedding);
+            const blended = (1 - clampedColorWeight) * r.similarity + clampedColorWeight * colorSim;
+            return { ...r, similarity: blended };
+          }).sort((a, b) => b.similarity - a.similarity);
+        }
       } catch (e) {
         console.warn("[/api/search] color rerank failed, using raw RPC order:", e);
       }
@@ -146,7 +183,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       embedText,
       usedHybrid: !!clipVector,
-      colorReranked: true,
+      usedRgbColor: !!queryRgb,
       results: reranked,
       hasMore: page.length === PAGE_SIZE,
     });
