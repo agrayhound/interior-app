@@ -41,34 +41,55 @@ def supabase_get(table: str, params: dict) -> list:
 
 def dominant_color(img_bytes: bytes) -> Optional[str]:
     """
-    Return the dominant non-background hex color from image bytes.
-    Uses PIL quantize (MEDIANCUT) to find top-5 colors, picks the most
-    common one that isn't near-white (R+G+B > 700) or near-black (< 45).
+    Return the dominant non-background tile hex color from image bytes.
+
+    Strategy:
+    1. Center-crop to the middle 60% of the image — removes framing/backgrounds.
+    2. Quantize to 8 clusters (more resolution than 5).
+    3. Discard near-white (sum>680), near-black (sum<45), AND near-grey
+       (chroma = max-min < 25) — this is the key fix: grout lines and grey
+       backgrounds are low-saturation and must be excluded.
+    4. Among remaining "colorful" clusters, pick the most frequent.
+    5. If no colorful cluster survives, fall back to the most vivid (highest
+       chroma) cluster regardless of frequency — better than returning grey.
     """
     try:
-        img = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((100, 100))
-        quantized = img.quantize(colors=5)
-        palette = quantized.getpalette()  # flat [r0,g0,b0,r1,g1,b1,...]
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        w, h = img.size
+
+        # Center crop — middle 60% width × 70% height
+        x0 = int(w * 0.20)
+        y0 = int(h * 0.15)
+        x1 = int(w * 0.80)
+        y1 = int(h * 0.85)
+        img = img.crop((x0, y0, x1, y1)).resize((100, 100))
+
+        quantized = img.quantize(colors=8)
+        palette = quantized.getpalette()
         counts = quantized.getcolors(maxcolors=10000) or []
 
-        valid = []
+        colorful = []  # passes all filters
+        all_clusters = []
+
         for count, idx in counts:
             r, g, b = palette[idx * 3], palette[idx * 3 + 1], palette[idx * 3 + 2]
             total = r + g + b
-            if 45 < total < 700:
-                valid.append((count, r, g, b))
+            chroma = max(r, g, b) - min(r, g, b)  # 0=grey, 255=fully saturated
+            all_clusters.append((count, chroma, r, g, b))
+            if 45 < total < 680 and chroma >= 25:
+                colorful.append((count, r, g, b))
 
-        if not valid:
-            # All pixels are near-white/black — just take the most common
-            if not counts:
-                return None
-            count, idx = max(counts, key=lambda x: x[0])
-            r, g, b = palette[idx * 3], palette[idx * 3 + 1], palette[idx * 3 + 2]
+        if colorful:
+            # Most frequent colorful cluster
+            _, r, g, b = max(colorful, key=lambda x: x[0])
+        elif all_clusters:
+            # Fallback: most vivid cluster (highest chroma) regardless of freq
+            _, _, r, g, b = max(all_clusters, key=lambda x: x[1])
         else:
-            _, r, g, b = max(valid, key=lambda x: x[0])
+            return None
 
         return f"#{r:02x}{g:02x}{b:02x}"
-    except Exception as e:
+    except Exception:
         return None
 
 
