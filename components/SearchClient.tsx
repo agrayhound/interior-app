@@ -423,6 +423,13 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     lastQuery.current = null;
     startSearch(async () => {
       try {
+        // Debug: save exact crop that will be sent to identify/search
+        fetch("/api/debug-save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageData: croppedDataUrl }),
+        }).then((r) => r.json()).then((d) => console.log("[debug] crop saved:", d)).catch(console.error);
+
         // Step 1: identify what's in the crop
         const identifyRes = await fetch("/api/identify", {
           method: "POST",

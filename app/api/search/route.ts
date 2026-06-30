@@ -94,7 +94,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "element required" }, { status: 400 });
     }
 
+    console.log(`[search] === NEW SEARCH REQUEST ===`);
+    console.log(`[search] element: label="${element.label}" material=${element.material} category=${element.category} is_tile=${element.is_tile}`);
+    console.log(`[search] colors=${JSON.stringify(element.colors)}`);
+    console.log(`[search] color_hexes=${JSON.stringify(element.color_hexes)}`);
+    console.log(`[search] imageUrl=${imageUrl ?? "(none)"} imageData=${imageData ? `base64 len=${imageData.length}` : "(none)"}`);
+    console.log(`[search] colorWeight=${colorWeight} offset=${offset}`);
+
     const embedText = buildEmbedText(element);
+    console.log(`[search] embedText="${embedText}"`);
+
     const clampedColorWeight = Math.max(0, Math.min(1, colorWeight));
     // Fetch a larger pool when color reranking is active so color-accurate tiles
     // that aren't top semantic matches can still be surfaced after reranking
@@ -104,14 +113,18 @@ export async function POST(req: NextRequest) {
     // Parse query dominant color from element.color_hexes (provided by /api/identify)
     const queryHex = element.color_hexes?.[0] ?? null;
     const queryRgb = queryHex ? hexToRgb(queryHex) : null;
+    console.log(`[search] queryHex=${queryHex ?? "(none — no color_hexes, will use text cosine fallback)"} queryRgb=${queryRgb ? JSON.stringify(queryRgb) : "null"}`);
 
     // Skip CLIP for base64 data URLs — Modal endpoint requires a fetchable URL
     const clipSource = imageData ? null : imageUrl;
+    console.log(`[search] CLIP source=${clipSource ?? "(skipped — imageData is base64)"} candidatePool=${clampedColorWeight > 0 ? Math.max(offset + 100, 100) : offset + PAGE_SIZE}`);
     const [embeddingRes, clipVector] = await Promise.all([
       openai.embeddings.create({ model: "text-embedding-3-small", input: embedText }),
       clipSource ? fetchClipEmbedding(clipSource) : Promise.resolve(null),
     ]);
     const textVector = embeddingRes.data[0].embedding;
+
+    console.log(`[search] CLIP vector obtained: ${clipVector ? `yes (${clipVector.length}d)` : "no"}`);
 
     let allResults;
     if (clipVector) {
@@ -191,6 +204,11 @@ export async function POST(req: NextRequest) {
 
     const page = reranked.slice(offset, offset + PAGE_SIZE);
     const hasMore = reranked.length > offset + PAGE_SIZE;
+
+    console.log(`[search] top 10 results after reranking (usedRgbColor=${!!queryRgb}):`);
+    for (const r of page.slice(0, 10)) {
+      console.log(`  [search]   sim=${r.similarity.toFixed(3)}  hex=${(r as Record<string, unknown>).dominant_color_hex ?? "?"}  [${r.name}]  palette=${JSON.stringify(r.color_palette?.slice(0,3))}`);
+    }
 
     return NextResponse.json({
       embedText,

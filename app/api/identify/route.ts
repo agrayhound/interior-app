@@ -39,6 +39,8 @@ export async function POST(req: NextRequest) {
       ? parseDataUrl(imageData)
       : await fetchImageAsBase64(imageUrl);
 
+    console.log(`[identify] source=${imageData ? "base64/crop" : "url"} mediaType=${mediaType} base64Length=${base64.length} (~${Math.round(base64.length * 0.75 / 1024)}KB decoded)`);
+
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 1024,
@@ -59,6 +61,13 @@ export async function POST(req: NextRequest) {
       if (text.startsWith("json")) text = text.slice(4);
     }
     const { elements } = JSON.parse(text);
+
+    console.log(`[identify] Claude returned ${(elements ?? []).length} element(s):`);
+    for (const el of (elements ?? [])) {
+      console.log(`  [identify]   id=${el.id} label="${el.label}" material=${el.material} category=${el.category} is_tile=${el.is_tile}`);
+      console.log(`  [identify]   colors=${JSON.stringify(el.colors)}`);
+      console.log(`  [identify]   color_hexes=${JSON.stringify(el.color_hexes)}`);
+    }
 
     return NextResponse.json({ elements: elements ?? [] });
   } catch (err) {
