@@ -10,6 +10,7 @@ interface Element {
   label: string;
   material: string;
   colors: string[];
+  color_hexes?: string[];
   finish: string;
   category: string;
   is_tile: boolean;
