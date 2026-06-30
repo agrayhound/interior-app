@@ -55,7 +55,7 @@ async function extractDominantColorFromBase64(dataUrl: string): Promise<{ r: num
     let bestColorful: { count: number; r: number; g: number; b: number } | null = null;
     let bestVivid:    { chroma: number; r: number; g: number; b: number } | null = null;
 
-    for (const bin of bins.values()) {
+    for (const bin of Array.from(bins.values())) {
       const ar = Math.round(bin.r / bin.count);
       const ag = Math.round(bin.g / bin.count);
       const ab = Math.round(bin.b / bin.count);
