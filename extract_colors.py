@@ -80,8 +80,10 @@ def dominant_color(img_bytes: bytes) -> Optional[str]:
                 colorful.append((count, r, g, b))
 
         if colorful:
-            # Most frequent colorful cluster
-            _, r, g, b = max(colorful, key=lambda x: x[0])
+            # Best cluster by count × chroma — prevents high-count neutral grout
+            # (e.g. count=536, chroma=34 → score=18224) from beating a vivid tile
+            # cluster (e.g. count=200, chroma=103 → score=20600)
+            _, r, g, b = max(colorful, key=lambda x: x[0] * (max(x[1], x[2], x[3]) - min(x[1], x[2], x[3])))  # count × chroma
         elif all_clusters:
             # Fallback: most vivid cluster (highest chroma) regardless of freq
             _, _, r, g, b = max(all_clusters, key=lambda x: x[1])
