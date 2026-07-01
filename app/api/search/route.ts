@@ -1,9 +1,11 @@
+// color-data-v2
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabase } from "@/lib/supabase";
 import productColorsRaw from "@/data/product_colors.json";
 
 const productColors = productColorsRaw as Record<string, string>;
+console.log("[search] color-data-check:", JSON.stringify(Object.entries(productColorsRaw).slice(0, 3)));
 
 const MODAL_CLIP_URL = "https://agrayhound--clip-embedder-embed-endpoint.modal.run";
 const MAX_RGB_DIST = 441.67; // sqrt(255² × 3) — max possible RGB distance
