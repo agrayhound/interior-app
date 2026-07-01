@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
     const clampedColorWeight = Math.max(0, Math.min(1, colorWeight));
     // Fetch a larger pool when color reranking is active so color-accurate tiles
     // that aren't top semantic matches can still be surfaced after reranking
-    const CANDIDATE_POOL = clampedColorWeight > 0 ? Math.max(offset + 100, 100) : offset + PAGE_SIZE;
+    const CANDIDATE_POOL = clampedColorWeight > 0 ? Math.max(offset + 1000, 1000) : offset + PAGE_SIZE;
     const fetchCount = CANDIDATE_POOL;
 
     // Parse query dominant color from element.color_hexes (provided by /api/identify)
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
 
     // Skip CLIP for base64 data URLs — Modal endpoint requires a fetchable URL
     const clipSource = imageData ? null : imageUrl;
-    console.log(`[search] CLIP source=${clipSource ?? "(skipped — imageData is base64)"} candidatePool=${clampedColorWeight > 0 ? Math.max(offset + 100, 100) : offset + PAGE_SIZE}`);
+    console.log(`[search] CLIP source=${clipSource ?? "(skipped — imageData is base64)"} candidatePool=${CANDIDATE_POOL}`);
     const [embeddingRes, clipVector] = await Promise.all([
       openai.embeddings.create({ model: "text-embedding-3-small", input: embedText }),
       clipSource ? fetchClipEmbedding(clipSource) : Promise.resolve(null),
