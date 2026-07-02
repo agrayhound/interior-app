@@ -187,9 +187,26 @@ function TileCard({ tile }: { tile: SearchResult | Tile }) {
 
 interface Rect { x: number; y: number; w: number; h: number }
 
+function isPinterestPinUrl(u: string): boolean {
+  try {
+    const p = new URL(u);
+    if (p.host === "pin.it") return p.pathname.length > 1;
+    if (/^([a-z]{2,3}\.)?pinterest\.com$/i.test(p.host)) return p.pathname.startsWith("/pin/");
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [url, setUrl] = useState("");
   const [preview, setPreview] = useState("");
+  // When user pastes a Pinterest pin URL, we resolve it to the underlying image URL
+  // and use that for preview + identify. Keeps the pin URL visible in the input.
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(null);
+  const [isResolvingPin, setIsResolvingPin] = useState(false);
+  const resolveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resolveRequestId = useRef(0);
 
   const [isIdentifying, startIdentify] = useTransition();
   const [elements, setElements] = useState<Element[] | null>(null);
@@ -376,7 +393,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   function handleUrlChange(val: string) {
     setUrl(val);
     const trimmed = val.trim();
-    setPreview(trimmed.startsWith("http") ? trimmed : "");
     setElements(null);
     setSelectedId(null);
     setResults(null);
@@ -386,11 +402,49 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setResultOffset(0);
     lastQuery.current = null;
     clearSelection();
+
+    if (resolveTimer.current) clearTimeout(resolveTimer.current);
+    setResolvedImageUrl(null);
+
+    if (isPinterestPinUrl(trimmed)) {
+      // Debounce: only resolve once the user stops typing/pasting
+      setPreview("");
+      setIsResolvingPin(true);
+      const rid = ++resolveRequestId.current;
+      resolveTimer.current = setTimeout(async () => {
+        try {
+          const res = await fetch("/api/resolve-pinterest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: trimmed }),
+          });
+          const data = await res.json();
+          if (rid !== resolveRequestId.current) return; // stale
+          if (!res.ok) {
+            setIsResolvingPin(false);
+            setIdentifyError(data.error ?? "Could not resolve Pinterest URL");
+            return;
+          }
+          setResolvedImageUrl(data.imageUrl);
+          setPreview(data.imageUrl);
+          setIsResolvingPin(false);
+        } catch (e) {
+          if (rid !== resolveRequestId.current) return;
+          setIsResolvingPin(false);
+          setIdentifyError(e instanceof Error ? e.message : "Failed to fetch Pinterest URL");
+        }
+      }, 400);
+    } else {
+      setIsResolvingPin(false);
+      setPreview(trimmed.startsWith("http") ? trimmed : "");
+    }
   }
 
   // Mode A: no selection — identify all surfaces, show element picker
   function handleIdentify() {
     if (!url.trim()) return;
+    if (isResolvingPin) return; // wait for resolution before firing
+    const effectiveUrl = resolvedImageUrl ?? url.trim();
     setIdentifyError("");
     setElements(null);
     setSelectedId(null);
@@ -400,7 +454,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const res = await fetch("/api/identify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl: url.trim() }),
+          body: JSON.stringify({ imageUrl: effectiveUrl }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Identification failed");
@@ -470,7 +524,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     lastQuery.current = null;
     startSearch(async () => {
       try {
-        const imageUrl = url.trim();
+        const imageUrl = resolvedImageUrl ?? url.trim();
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -569,17 +623,20 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                   else handleIdentify();
                 }
               }}
-              placeholder="Paste an image URL from Pinterest, Houzz, or anywhere…"
+              placeholder="Paste a Pinterest pin link or direct image URL"
               className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-3.5 text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-stone-500 focus:ring-1 focus:ring-stone-500/50 transition-colors"
             />
             <button
               onClick={croppedDataUrl ? handleSearchSelection : handleIdentify}
-              disabled={isIdentifying || isSearching || !url.trim()}
+              disabled={isIdentifying || isSearching || isResolvingPin || !url.trim()}
               className="px-6 py-3.5 bg-stone-600 hover:bg-stone-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap"
             >
-              {isIdentifying ? "Identifying…" : isSearching ? "Searching…" : croppedDataUrl ? "Search Selected Area" : "Identify Materials"}
+              {isResolvingPin ? "Resolving…" : isIdentifying ? "Identifying…" : isSearching ? "Searching…" : croppedDataUrl ? "Search Selected Area" : "Identify Materials"}
             </button>
           </div>
+          {isResolvingPin && (
+            <p className="mt-3 text-sm text-neutral-400">Resolving Pinterest pin…</p>
+          )}
           {identifyError && (
             <p className="mt-3 text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-lg px-4 py-2">{identifyError}</p>
           )}
