@@ -224,27 +224,37 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   // Stored query params so load more can re-use them without re-analysing
   const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
   // Cache of the last /api/identify response, keyed on the exact image source.
-  // Invalidated whenever the URL changes; cache-miss on new crop happens
-  // automatically because the imageData key differs.
-  const identifyCache = useRef<{ imageUrl?: string; imageData?: string; elements: Element[] } | null>(null);
+  // Stores the in-flight promise so it's populated synchronously — this both
+  // prevents duplicate Claude calls when two clicks fire before the first
+  // finishes, and simplifies the hit/miss test (no reliance on state timing).
+  // Invalidated whenever the URL changes; a new crop cache-misses automatically
+  // because its imageData key differs.
+  const identifyCache = useRef<{ imageUrl?: string; imageData?: string; promise: Promise<Element[]> } | null>(null);
 
-  async function identifyOrReuse(params: { imageUrl?: string; imageData?: string }): Promise<Element[]> {
+  function identifyOrReuse(params: { imageUrl?: string; imageData?: string }): Promise<Element[]> {
     const cached = identifyCache.current;
     if (cached && cached.imageUrl === params.imageUrl && cached.imageData === params.imageData) {
       console.log("[identify] using cached analysis");
-      return cached.elements;
+      return cached.promise;
     }
     console.log("[identify] calling Claude API - new image");
-    const res = await fetch("/api/identify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
+    const promise = (async () => {
+      const res = await fetch("/api/identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Identification failed");
+      return (data.elements ?? []) as Element[];
+    })();
+    // Set synchronously so concurrent callers hit the same in-flight promise.
+    identifyCache.current = { imageUrl: params.imageUrl, imageData: params.imageData, promise };
+    // If the request fails, drop this cache entry so the next click can retry.
+    promise.catch(() => {
+      if (identifyCache.current?.promise === promise) identifyCache.current = null;
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "Identification failed");
-    const elements: Element[] = data.elements ?? [];
-    identifyCache.current = { imageUrl: params.imageUrl, imageData: params.imageData, elements };
-    return elements;
+    return promise;
   }
 
   // Re-run the previous search with the current colorWeight. Called by the
@@ -491,13 +501,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     lastQuery.current = null;
     startSearch(async () => {
       try {
-        // Debug: save exact crop that will be sent to identify/search
-        fetch("/api/debug-save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageData: croppedDataUrl }),
-        }).then((r) => r.json()).then((d) => console.log("[debug] crop saved:", d)).catch(console.error);
-
         // Step 1: identify what's in the crop (cached per crop payload)
         const found = await identifyOrReuse({ imageData: croppedDataUrl });
         const el = found.find((e) => e.is_tile) ?? found[0];
@@ -741,12 +744,27 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                   // which will either hit the identify cache or call Claude if truly new.
                   const currentImageData = croppedDataUrl ?? undefined;
                   const currentImageUrl = croppedDataUrl ? undefined : (resolvedImageUrl ?? (url.trim() || undefined));
+                  const lq = lastQuery.current;
                   const sameSource =
-                    lastQuery.current &&
-                    lastQuery.current.imageUrl === currentImageUrl &&
-                    lastQuery.current.imageData === currentImageData;
-                  if (results && sameSource) rerunSearch();
-                  else if (croppedDataUrl) handleSearchSelection();
+                    lq !== null &&
+                    lq.imageUrl === currentImageUrl &&
+                    lq.imageData === currentImageData;
+                  const route = results && sameSource ? "rerunSearch"
+                    : croppedDataUrl ? "handleSearchSelection"
+                    : "handleIdentify";
+                  console.log("[click] route=" + route, {
+                    hasResults: !!results,
+                    hasLastQuery: !!lq,
+                    sameSource,
+                    urlEq: lq ? lq.imageUrl === currentImageUrl : null,
+                    dataEq: lq ? lq.imageData === currentImageData : null,
+                    currentImageDataLen: currentImageData?.length ?? 0,
+                    lastImageDataLen: lq?.imageData?.length ?? 0,
+                    currentImageUrl,
+                    lastImageUrl: lq?.imageUrl,
+                  });
+                  if (route === "rerunSearch") rerunSearch();
+                  else if (route === "handleSearchSelection") handleSearchSelection();
                   else handleIdentify();
                 }}
                 disabled={isIdentifying || isSearching || isResolvingPin || !url.trim()}
