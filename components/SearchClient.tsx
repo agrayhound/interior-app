@@ -225,40 +225,43 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
   const rerankTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Re-search with new colorWeight when slider moves after results are visible
+  // Re-run the previous search with the current colorWeight. Used by both the
+  // slider auto-rerank effect and the button click after results are visible.
+  const rerunSearch = useCallback(() => {
+    const q = lastQuery.current;
+    if (!q) return;
+    const query = { ...q, colorWeight };
+    lastQuery.current = query;
+    setResults(null);
+    setHasMore(false);
+    setResultOffset(0);
+    setSearchError("");
+    startSearch(async () => {
+      try {
+        const res = await fetch("/api/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ element: query.element, imageUrl: query.imageUrl, imageData: query.imageData, colorWeight, offset: 0 }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Search failed");
+        lastQuery.current = query;
+        setResultOffset(10);
+        setHasMore(data.hasMore ?? false);
+        setResults(data.results ?? []);
+      } catch (e) {
+        setSearchError(e instanceof Error ? e.message : "Something went wrong");
+      }
+    });
+  }, [colorWeight]);
+
+  // Debounced auto-rerank when slider moves after results are visible
   useEffect(() => {
     if (!lastQuery.current) return;
     if (rerankTimer.current) clearTimeout(rerankTimer.current);
-    rerankTimer.current = setTimeout(() => {
-      const q = lastQuery.current;
-      if (!q) return;
-      const query = { ...q, colorWeight };
-      lastQuery.current = query;
-      setResults(null);
-      setHasMore(false);
-      setResultOffset(0);
-      setSearchError("");
-      startSearch(async () => {
-        try {
-          const res = await fetch("/api/search", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ element: query.element, imageUrl: query.imageUrl, imageData: query.imageData, colorWeight, offset: 0 }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error ?? "Search failed");
-          lastQuery.current = query;
-          setResultOffset(10);
-          setHasMore(data.hasMore ?? false);
-          setResults(data.results ?? []);
-        } catch (e) {
-          setSearchError(e instanceof Error ? e.message : "Something went wrong");
-        }
-      });
-    }, 400);
+    rerankTimer.current = setTimeout(() => { rerunSearch(); }, 400);
     return () => { if (rerankTimer.current) clearTimeout(rerankTimer.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colorWeight]);
+  }, [colorWeight, rerunSearch]);
 
   // Region selection state
   const imgRef = useRef<HTMLImageElement>(null);
@@ -714,30 +717,33 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                 )}
               </div>
             </div>
-            {/* Color weight slider + Identify button — set before searching */}
-            {!results && (
-              <div className="flex items-center gap-3 mt-3 px-1">
-                <span className="text-xs text-neutral-500 w-14 text-right shrink-0">Style</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={colorWeight}
-                  onChange={(e) => setColorWeight(parseFloat(e.target.value))}
-                  className="flex-1 accent-stone-400 cursor-pointer"
-                />
-                <span className="text-xs text-neutral-500 w-14 shrink-0">Color</span>
-                <span className="text-xs text-neutral-600 w-8 text-right shrink-0">{Math.round(colorWeight * 100)}%</span>
-                <button
-                  onClick={croppedDataUrl ? handleSearchSelection : handleIdentify}
-                  disabled={isIdentifying || isSearching || isResolvingPin || !url.trim()}
-                  className="px-5 py-2 bg-stone-600 hover:bg-stone-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0"
-                >
-                  {isResolvingPin ? "Resolving…" : isIdentifying ? "Identifying…" : isSearching ? "Searching…" : croppedDataUrl ? "Search Selected Area" : "Identify Materials"}
-                </button>
-              </div>
-            )}
+            {/* Color weight slider + button — stays visible after results so the user can
+                tweak the slider and click to re-run without re-selecting the image */}
+            <div className="flex items-center gap-3 mt-3 px-1">
+              <span className="text-xs text-neutral-500 w-14 text-right shrink-0">Style</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={colorWeight}
+                onChange={(e) => setColorWeight(parseFloat(e.target.value))}
+                className="flex-1 accent-stone-400 cursor-pointer"
+              />
+              <span className="text-xs text-neutral-500 w-14 shrink-0">Color</span>
+              <span className="text-xs text-neutral-600 w-8 text-right shrink-0">{Math.round(colorWeight * 100)}%</span>
+              <button
+                onClick={() => {
+                  if (results && lastQuery.current) rerunSearch();
+                  else if (croppedDataUrl) handleSearchSelection();
+                  else handleIdentify();
+                }}
+                disabled={isIdentifying || isSearching || isResolvingPin || !url.trim()}
+                className="px-5 py-2 bg-stone-600 hover:bg-stone-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                {isResolvingPin ? "Resolving…" : isIdentifying ? "Identifying…" : isSearching ? "Searching…" : croppedDataUrl ? "Search Selected Area" : "Identify Materials"}
+              </button>
+            </div>
           </div>
         )}
 
@@ -794,35 +800,18 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         {/* Search results */}
         {results && results.length > 0 && (
           <div className="mb-20">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                {croppedDataUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={croppedDataUrl}
-                    alt="Searched region"
-                    className="w-10 h-10 rounded-lg object-cover border border-neutral-700 shrink-0"
-                  />
-                )}
-                <h2 className="text-lg font-semibold text-neutral-100">
-                  {results.length} matching tiles found
-                </h2>
-              </div>
-              {/* Color weight slider */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-neutral-500 whitespace-nowrap">Style</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={colorWeight}
-                  onChange={(e) => setColorWeight(parseFloat(e.target.value))}
-                  className="w-24 accent-stone-400 cursor-pointer"
-                  title={`Color weight: ${Math.round(colorWeight * 100)}%`}
+            <div className="flex items-center gap-3 mb-6">
+              {croppedDataUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={croppedDataUrl}
+                  alt="Searched region"
+                  className="w-10 h-10 rounded-lg object-cover border border-neutral-700 shrink-0"
                 />
-                <span className="text-xs text-neutral-500 whitespace-nowrap">Color</span>
-              </div>
+              )}
+              <h2 className="text-lg font-semibold text-neutral-100">
+                {results.length} matching tiles found
+              </h2>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {results.map((tile) => (
