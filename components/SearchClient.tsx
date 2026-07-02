@@ -616,35 +616,57 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         </div>
 
         {/* Search box */}
-        <div className="max-w-2xl mx-auto mb-6">
-          <div className="flex gap-3">
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => handleUrlChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  if (croppedDataUrl) handleSearchSelection();
-                  else handleIdentify();
-                }
-              }}
-              placeholder="Paste a Pinterest pin link or direct image URL"
-              className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-3.5 text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-stone-500 focus:ring-1 focus:ring-stone-500/50 transition-colors"
-            />
-            <button
-              onClick={croppedDataUrl ? handleSearchSelection : handleIdentify}
-              disabled={isIdentifying || isSearching || isResolvingPin || !url.trim()}
-              className="px-6 py-3.5 bg-stone-600 hover:bg-stone-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap"
-            >
-              {isResolvingPin ? "Resolving…" : isIdentifying ? "Identifying…" : isSearching ? "Searching…" : croppedDataUrl ? "Search Selected Area" : "Identify Materials"}
-            </button>
-          </div>
+        <div className="max-w-2xl mx-auto mb-3">
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => handleUrlChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                if (croppedDataUrl) handleSearchSelection();
+                else handleIdentify();
+              }
+            }}
+            placeholder="Paste a Pinterest pin link or direct image URL"
+            className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-3.5 text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-stone-500 focus:ring-1 focus:ring-stone-500/50 transition-colors"
+          />
           {isResolvingPin && (
             <p className="mt-3 text-sm text-neutral-400">Resolving Pinterest pin…</p>
           )}
           {identifyError && (
             <p className="mt-3 text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-lg px-4 py-2">{identifyError}</p>
           )}
+        </div>
+
+        {/* Selection hint / status bar — sits directly below the input, above the preview */}
+        <div className="max-w-2xl mx-auto mb-6">
+          <div className="flex items-center justify-between px-1 min-h-[20px]">
+            {croppedDataUrl ? (
+              <div className="flex items-center gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={croppedDataUrl}
+                  alt="Selected region"
+                  className="w-8 h-8 rounded object-cover border border-neutral-700 shrink-0"
+                />
+                <p className="text-xs text-stone-400 font-medium">Selection ready — click Search Selected Area</p>
+              </div>
+            ) : (
+              <p className="text-xs text-neutral-500">
+                {selection
+                  ? "Drawing… release to confirm"
+                  : "Draw a selection to search a specific area, or identify all surfaces below"}
+              </p>
+            )}
+            {croppedDataUrl && (
+              <button
+                onClick={clearSelection}
+                className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors ml-3 shrink-0"
+              >
+                Clear ✕
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Image preview with region selection */}
@@ -689,36 +711,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                 )}
               </div>
             </div>
-            {/* Selection hint / status bar */}
-            <div className="flex items-center justify-between mt-2 px-1 min-h-[20px]">
-              {croppedDataUrl ? (
-                <div className="flex items-center gap-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={croppedDataUrl}
-                    alt="Selected region"
-                    className="w-8 h-8 rounded object-cover border border-neutral-700 shrink-0"
-                  />
-                  <p className="text-xs text-stone-400 font-medium">Selection ready — click Search Selected Area</p>
-                </div>
-              ) : (
-                <p className="text-xs text-neutral-500">
-                  {selection
-                    ? "Drawing… release to confirm"
-                    : "Draw a selection to search a specific area, or identify all surfaces below"}
-                </p>
-              )}
-              {croppedDataUrl && (
-                <button
-                  onClick={clearSelection}
-                  className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors ml-3 shrink-0"
-                >
-                  Clear ✕
-                </button>
-              )}
-            </div>
-
-            {/* Color weight slider — set before searching */}
+            {/* Color weight slider + Identify button — set before searching */}
             {!results && (
               <div className="flex items-center gap-3 mt-3 px-1">
                 <span className="text-xs text-neutral-500 w-14 text-right shrink-0">Style</span>
@@ -733,6 +726,13 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                 />
                 <span className="text-xs text-neutral-500 w-14 shrink-0">Color</span>
                 <span className="text-xs text-neutral-600 w-8 text-right shrink-0">{Math.round(colorWeight * 100)}%</span>
+                <button
+                  onClick={croppedDataUrl ? handleSearchSelection : handleIdentify}
+                  disabled={isIdentifying || isSearching || isResolvingPin || !url.trim()}
+                  className="px-5 py-2 bg-stone-600 hover:bg-stone-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  {isResolvingPin ? "Resolving…" : isIdentifying ? "Identifying…" : isSearching ? "Searching…" : croppedDataUrl ? "Search Selected Area" : "Identify Materials"}
+                </button>
               </div>
             )}
           </div>
