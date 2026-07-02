@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useRef, useCallback, useEffect } from "react";
 import Image from "next/image";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by Pinterest entry points (currently commented out; see TODO below)
 import Link from "next/link";
 import type { Tile } from "@/lib/getFeaturedTiles";
 
