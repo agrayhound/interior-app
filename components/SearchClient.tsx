@@ -638,36 +638,39 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
           )}
         </div>
 
-        {/* Selection hint / status bar — sits directly below the input, above the preview */}
-        <div className="max-w-2xl mx-auto mb-6">
-          <div className="flex items-center justify-between px-1 min-h-[20px]">
-            {croppedDataUrl ? (
-              <div className="flex items-center gap-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={croppedDataUrl}
-                  alt="Selected region"
-                  className="w-8 h-8 rounded object-cover border border-neutral-700 shrink-0"
-                />
-                <p className="text-xs text-stone-400 font-medium">Selection ready — click Search Selected Area</p>
-              </div>
-            ) : (
-              <p className="text-xs text-neutral-500">
-                {selection
-                  ? "Drawing… release to confirm"
-                  : "Draw a selection to search a specific area, or identify all surfaces below"}
-              </p>
-            )}
-            {croppedDataUrl && (
-              <button
-                onClick={clearSelection}
-                className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors ml-3 shrink-0"
-              >
-                Clear ✕
-              </button>
-            )}
+        {/* Selection hint / status bar — sits directly below the input, above the preview.
+            Only renders once an image is actually loaded. */}
+        {preview && (
+          <div className="max-w-2xl mx-auto mb-6">
+            <div className="flex items-center justify-between px-1 min-h-[20px]">
+              {croppedDataUrl ? (
+                <div className="flex items-center gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={croppedDataUrl}
+                    alt="Selected region"
+                    className="w-8 h-8 rounded object-cover border border-neutral-700 shrink-0"
+                  />
+                  <p className="text-xs text-stone-400 font-medium">Selection ready — click Search Selected Area</p>
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-500">
+                  {selection
+                    ? "Drawing… release to confirm"
+                    : "Draw a selection to search a specific area, or identify all surfaces below"}
+                </p>
+              )}
+              {croppedDataUrl && (
+                <button
+                  onClick={clearSelection}
+                  className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors ml-3 shrink-0"
+                >
+                  Clear ✕
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Image preview with region selection */}
         {preview && (
