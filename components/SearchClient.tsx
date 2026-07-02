@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef, useCallback, useEffect } from "react";
+import { useState, useTransition, useRef, useCallback } from "react";
 import Image from "next/image";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by Pinterest entry points (currently commented out; see TODO below)
 import Link from "next/link";
@@ -223,10 +223,10 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [colorWeight, setColorWeight] = useState(0.5);
   // Stored query params so load more can re-use them without re-analysing
   const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
-  const rerankTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Re-run the previous search with the current colorWeight. Used by both the
-  // slider auto-rerank effect and the button click after results are visible.
+  // Re-run the previous search with the current colorWeight. Called by the
+  // button when results are already visible — no auto-rerank on slider drag;
+  // the search only fires on an explicit button click.
   const rerunSearch = useCallback(() => {
     const q = lastQuery.current;
     if (!q) return;
@@ -254,14 +254,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
       }
     });
   }, [colorWeight]);
-
-  // Debounced auto-rerank when slider moves after results are visible
-  useEffect(() => {
-    if (!lastQuery.current) return;
-    if (rerankTimer.current) clearTimeout(rerankTimer.current);
-    rerankTimer.current = setTimeout(() => { rerunSearch(); }, 400);
-    return () => { if (rerankTimer.current) clearTimeout(rerankTimer.current); };
-  }, [colorWeight, rerunSearch]);
 
   // Region selection state
   const imgRef = useRef<HTMLImageElement>(null);
