@@ -223,6 +223,29 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [colorWeight, setColorWeight] = useState(0.5);
   // Stored query params so load more can re-use them without re-analysing
   const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
+  // Cache of the last /api/identify response, keyed on the exact image source.
+  // Invalidated whenever the URL changes; cache-miss on new crop happens
+  // automatically because the imageData key differs.
+  const identifyCache = useRef<{ imageUrl?: string; imageData?: string; elements: Element[] } | null>(null);
+
+  async function identifyOrReuse(params: { imageUrl?: string; imageData?: string }): Promise<Element[]> {
+    const cached = identifyCache.current;
+    if (cached && cached.imageUrl === params.imageUrl && cached.imageData === params.imageData) {
+      console.log("[identify] using cached analysis");
+      return cached.elements;
+    }
+    console.log("[identify] calling Claude API - new image");
+    const res = await fetch("/api/identify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Identification failed");
+    const elements: Element[] = data.elements ?? [];
+    identifyCache.current = { imageUrl: params.imageUrl, imageData: params.imageData, elements };
+    return elements;
+  }
 
   // Re-run the previous search with the current colorWeight. Called by the
   // button when results are already visible — no auto-rerank on slider drag;
@@ -389,6 +412,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   function handleUrlChange(val: string) {
     setUrl(val);
     const trimmed = val.trim();
+    identifyCache.current = null; // new URL invalidates the cached vision analysis
     setElements(null);
     setSelectedId(null);
     setResults(null);
@@ -447,14 +471,8 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setResults(null);
     startIdentify(async () => {
       try {
-        const res = await fetch("/api/identify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageUrl: effectiveUrl }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Identification failed");
-        setElements(data.elements ?? []);
+        const found = await identifyOrReuse({ imageUrl: effectiveUrl });
+        setElements(found);
       } catch (e) {
         setIdentifyError(e instanceof Error ? e.message : "Something went wrong");
       }
@@ -480,16 +498,8 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
           body: JSON.stringify({ imageData: croppedDataUrl }),
         }).then((r) => r.json()).then((d) => console.log("[debug] crop saved:", d)).catch(console.error);
 
-        // Step 1: identify what's in the crop
-        const identifyRes = await fetch("/api/identify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageData: croppedDataUrl }),
-        });
-        const identifyData = await identifyRes.json();
-        if (!identifyRes.ok) throw new Error(identifyData.error ?? "Identification failed");
-
-        const found: Element[] = identifyData.elements ?? [];
+        // Step 1: identify what's in the crop (cached per crop payload)
+        const found = await identifyOrReuse({ imageData: croppedDataUrl });
         const el = found.find((e) => e.is_tile) ?? found[0];
         if (!el) throw new Error("No surfaces identified in the selected area. Try a larger selection.");
 
@@ -726,7 +736,16 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
               <span className="text-xs text-neutral-600 w-8 text-right shrink-0">{Math.round(colorWeight * 100)}%</span>
               <button
                 onClick={() => {
-                  if (results && lastQuery.current) rerunSearch();
+                  // Fast-path re-rank only when the source hasn't changed since the last search.
+                  // A newly drawn selection or a different URL routes back through identify,
+                  // which will either hit the identify cache or call Claude if truly new.
+                  const currentImageData = croppedDataUrl ?? undefined;
+                  const currentImageUrl = croppedDataUrl ? undefined : (resolvedImageUrl ?? (url.trim() || undefined));
+                  const sameSource =
+                    lastQuery.current &&
+                    lastQuery.current.imageUrl === currentImageUrl &&
+                    lastQuery.current.imageData === currentImageData;
+                  if (results && sameSource) rerunSearch();
                   else if (croppedDataUrl) handleSearchSelection();
                   else handleIdentify();
                 }}
