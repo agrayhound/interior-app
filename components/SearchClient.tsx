@@ -877,7 +877,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
 
         {/* Featured tiles */}
         {!elements && !isIdentifying && (
-          <div className="mt-4">
+          <div className="mt-16">
             <div className="flex items-center gap-3 mb-6">
               <div className="h-px flex-1 bg-neutral-800" />
               <span className="text-xs font-semibold uppercase tracking-widest text-neutral-600">
