@@ -573,6 +573,8 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     }
   }
 
+  const imageLoaded = !!preview;
+
   return (
     <div className="min-h-screen bg-neutral-950">
       <header className="border-b border-neutral-800/60 px-6 py-4">
@@ -596,35 +598,37 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-16">
-        <div className="text-center mb-14">
-          <h1 className="text-4xl sm:text-5xl font-bold text-neutral-100 leading-tight mb-4">
-            Find tiles that match<br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-stone-300 to-stone-500">any inspiration image</span>
-          </h1>
-          <p className="text-neutral-400 text-lg max-w-xl mx-auto">
-            Paste a Pinterest, Houzz, or any image URL. Our AI identifies the surfaces — pick the one you want to source.
-          </p>
-          {/* TODO: re-enable once Pinterest trial access is approved (app ID 1584653)
-          <div className="mt-6">
-            <Link
-              href="/pinterest"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-600 transition-all text-sm font-medium text-neutral-300"
-            >
-              <svg className="w-4 h-4 text-red-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.5l-2.98-.929c-.648-.2-.66-.648.136-.961l11.647-4.494c.54-.194 1.01.131.832.105z"/>
-              </svg>
-              Browse Pinterest boards
-              <svg className="w-3.5 h-3.5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
-              </svg>
-            </Link>
+      <main className={`max-w-6xl mx-auto px-6 ${imageLoaded ? "py-6" : "py-16"} transition-all duration-300`}>
+        {!imageLoaded && (
+          <div className="text-center mb-14">
+            <h1 className="text-4xl sm:text-5xl font-bold text-neutral-100 leading-tight mb-4">
+              Find tiles that match<br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-stone-300 to-stone-500">any inspiration image</span>
+            </h1>
+            <p className="text-neutral-400 text-lg max-w-xl mx-auto">
+              Paste a Pinterest, Houzz, or any image URL. Our AI identifies the surfaces — pick the one you want to source.
+            </p>
+            {/* TODO: re-enable once Pinterest trial access is approved (app ID 1584653)
+            <div className="mt-6">
+              <Link
+                href="/pinterest"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-600 transition-all text-sm font-medium text-neutral-300"
+              >
+                <svg className="w-4 h-4 text-red-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.5l-2.98-.929c-.648-.2-.66-.648.136-.961l11.647-4.494c.54-.194 1.01.131.832.105z"/>
+                </svg>
+                Browse Pinterest boards
+                <svg className="w-3.5 h-3.5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
+                </svg>
+              </Link>
+            </div>
+            */}
           </div>
-          */}
-        </div>
+        )}
 
         {/* Search box */}
-        <div className="max-w-2xl mx-auto mb-3">
+        <div className={`max-w-2xl mx-auto mb-3 ${imageLoaded ? "" : ""}`}>
           <input
             type="url"
             value={url}
@@ -876,7 +880,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         )}
 
         {/* Featured tiles */}
-        {!elements && !isIdentifying && (
+        {!imageLoaded && !elements && !isIdentifying && (
           <div className="mt-16">
             <div className="flex items-center gap-3 mb-6">
               <div className="h-px flex-1 bg-neutral-800" />
