@@ -702,18 +702,16 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                   onLoad={syncCanvasSize}
                   draggable={false}
                 />
-                {/* Canvas overlay for drawing selection — inset-0 now relative to image wrapper */}
-                {!isIdentifying && !isSearching && (
-                  <canvas
-                    ref={canvasRef}
-                    className="absolute inset-0 cursor-crosshair"
-                    style={{ touchAction: "none" }}
-                    onMouseDown={handleCanvasMouseDown}
-                    onMouseMove={handleCanvasMouseMove}
-                    onMouseUp={handleCanvasMouseUp}
-                    onMouseLeave={(e) => { if (isDrawing) handleCanvasMouseUp(e); }}
-                  />
-                )}
+                {/* Canvas overlay for drawing selection — always mounted so drawn state persists after search */}
+                <canvas
+                  ref={canvasRef}
+                  className="absolute inset-0 cursor-crosshair"
+                  style={{ touchAction: "none", pointerEvents: (isIdentifying || isSearching) ? "none" : "auto" }}
+                  onMouseDown={handleCanvasMouseDown}
+                  onMouseMove={handleCanvasMouseMove}
+                  onMouseUp={handleCanvasMouseUp}
+                  onMouseLeave={(e) => { if (isDrawing) handleCanvasMouseUp(e); }}
+                />
                 {(isIdentifying || isSearching) && (
                   <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
                     <div className="flex flex-col items-center gap-3">
