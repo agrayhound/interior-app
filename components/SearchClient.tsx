@@ -295,6 +295,10 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [startPt, setStartPt] = useState<{ x: number; y: number } | null>(null);
   const [selection, setSelection] = useState<Rect | null>(null);
   const [croppedDataUrl, setCroppedDataUrl] = useState<string | null>(null);
+  // Stable ref holding the same value as croppedDataUrl state. Closures in
+  // handleSearchSelection and the button onClick read from here so the cache
+  // key is always the exact string generated at mouseUp — never a re-encoded copy.
+  const croppedDataRef = useRef<string | null>(null);
 
   function getCanvasPoint(e: React.MouseEvent<HTMLCanvasElement>): { x: number; y: number } {
     const canvas = canvasRef.current!;
@@ -347,6 +351,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setIsDrawing(true);
     setStartPt(pt);
     setSelection(null);
+    croppedDataRef.current = null;
     setCroppedDataUrl(null);
     clearCanvas();
   }, []);
@@ -400,7 +405,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
       0, 0, crop.width, crop.height,
     );
     try {
-      setCroppedDataUrl(crop.toDataURL("image/jpeg", 0.92));
+      const dataUrl = crop.toDataURL("image/jpeg", 0.92);
+      croppedDataRef.current = dataUrl;
+      setCroppedDataUrl(dataUrl);
     } catch (err) {
       console.error("[canvas crop] toDataURL failed — image may not be CORS-proxied yet:", err);
     }
@@ -408,6 +415,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
 
   function clearSelection() {
     setSelection(null);
+    croppedDataRef.current = null;
     setCroppedDataUrl(null);
     clearCanvas();
     setElements(null);
@@ -491,7 +499,8 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
 
   // Mode B: selection drawn — identify crop, auto-pick best element, search directly
   function handleSearchSelection() {
-    if (!croppedDataUrl) return;
+    const imageData = croppedDataRef.current;
+    if (!imageData) return;
     setSearchError("");
     setElements(null);
     setSelectedId(null);
@@ -502,7 +511,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     startSearch(async () => {
       try {
         // Step 1: identify what's in the crop (cached per crop payload)
-        const found = await identifyOrReuse({ imageData: croppedDataUrl });
+        const found = await identifyOrReuse({ imageData });
         const el = found.find((e) => e.is_tile) ?? found[0];
         if (!el) throw new Error("No surfaces identified in the selected area. Try a larger selection.");
 
@@ -510,11 +519,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const searchRes = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element: el, imageData: croppedDataUrl, colorWeight }),
+          body: JSON.stringify({ element: el, imageData, colorWeight }),
         });
         const searchData = await searchRes.json();
         if (!searchRes.ok) throw new Error(searchData.error ?? "Search failed");
-        lastQuery.current = { element: el, imageData: croppedDataUrl, colorWeight };
+        lastQuery.current = { element: el, imageData, colorWeight };
         setResultOffset(10);
         setHasMore(searchData.hasMore ?? false);
         setResults(searchData.results ?? []);
@@ -710,7 +719,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                   onMouseDown={handleCanvasMouseDown}
                   onMouseMove={handleCanvasMouseMove}
                   onMouseUp={handleCanvasMouseUp}
-                  onMouseLeave={(e) => { if (isDrawing) handleCanvasMouseUp(e); }}
+                  onMouseLeave={(e) => { if (isDrawing && !croppedDataRef.current) handleCanvasMouseUp(e); }}
                 />
                 {(isIdentifying || isSearching) && (
                   <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
@@ -744,8 +753,8 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                   // Fast-path re-rank only when the source hasn't changed since the last search.
                   // A newly drawn selection or a different URL routes back through identify,
                   // which will either hit the identify cache or call Claude if truly new.
-                  const currentImageData = croppedDataUrl ?? undefined;
-                  const currentImageUrl = croppedDataUrl ? undefined : (resolvedImageUrl ?? (url.trim() || undefined));
+                  const currentImageData = croppedDataRef.current ?? undefined;
+                  const currentImageUrl = croppedDataRef.current ? undefined : (resolvedImageUrl ?? (url.trim() || undefined));
                   const lq = lastQuery.current;
                   const sameSource =
                     lq !== null &&
