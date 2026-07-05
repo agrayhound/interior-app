@@ -581,6 +581,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-stone-400 to-stone-600 flex items-center justify-center text-[9px] font-bold text-white">DM</div>
             <span className="font-semibold text-neutral-100 tracking-tight">Design Matcher</span>
           </div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-stone-500">Powered by AI vision</p>
           {/* TODO: re-enable once Pinterest trial access is approved (app ID 1584653)
           <Link
             href="/pinterest"
@@ -597,7 +598,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
 
       <main className="max-w-6xl mx-auto px-6 py-16">
         <div className="text-center mb-14">
-          <p className="text-xs font-semibold uppercase tracking-widest text-stone-500 mb-4">Powered by AI vision</p>
           <h1 className="text-4xl sm:text-5xl font-bold text-neutral-100 leading-tight mb-4">
             Find tiles that match<br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-stone-300 to-stone-500">any inspiration image</span>
