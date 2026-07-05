@@ -69,15 +69,15 @@ function colorToCss(color: string): string {
   return map[color.toLowerCase().trim()] ?? "#888";
 }
 
-function ColorSwatch({ colors }: { colors: string[] }) {
+function ColorSwatch({ colors, hexes }: { colors: string[]; hexes?: string[] }) {
   return (
     <div className="flex gap-1 mt-2">
-      {colors.slice(0, 4).map((c) => (
+      {colors.slice(0, 4).map((c, i) => (
         <div
           key={c}
           title={c}
           className="w-4 h-4 rounded-full border border-neutral-700 shrink-0"
-          style={{ backgroundColor: colorToCss(c) }}
+          style={{ backgroundColor: hexes?.[i] ?? colorToCss(c) }}
         />
       ))}
     </div>
@@ -122,7 +122,7 @@ function ElementCard({
           {element.category}
         </span>
       </div>
-      <ColorSwatch colors={element.colors} />
+      <ColorSwatch colors={element.colors} hexes={element.color_hexes} />
       {selected && loading && (
         <p className="text-xs text-stone-400 mt-2 flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 border border-stone-400 border-t-transparent rounded-full animate-spin" />
