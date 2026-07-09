@@ -42,17 +42,25 @@ Vision analysis fields (populated by analyze_products.py):
 - search_similar_tiles_hybrid() — takes both text vector and CLIP vector, returns 0.6×semantic + 0.4×CLIP score
 ## Suppliers
 ### Current status
-| Supplier | Method | Status | Products in DB |
-|---|---|---|---|
-| Stone Tile | GraphQL (Magento 2 PWA) | ✅ Complete | 446 |
-| Ames | Cheerio HTML (Magento) | ✅ Complete | 1404 |
-| Centura | Drupal JSON API | ✅ Complete | 411 |
-| Tierra Sol | Playwright + CF cookie | ✅ Complete | 760 |
-| C&S Tile | Cheerio HTML (WordPress) | ✅ Complete | 832 |
-| Julian Tile | Squarespace ?format=json API | ✅ Complete | 645 |
-| Centanni | Wix SSR warmup JSON (centannitile.com) | ✅ Complete | 213 |
+| Supplier | Method | Status | Products in DB | Analyzed | CLIP |
+|---|---|---|---|---|---|
+| Stone Tile | GraphQL (Magento 2 PWA) | ✅ Complete | 498 | 492 | 492 |
+| Ames | Cheerio HTML (Magento) | ✅ Complete | 1404 | 1404 | 1404 |
+| Centura | Drupal JSON API | ✅ Complete | 410 | 410 | 410 |
+| Tierra Sol | Playwright + CF cookie | ✅ Complete | 760 | 760 | 760 |
+| C&S Tile | Cheerio HTML (WordPress) | ✅ Complete | 832 | 832 | 832 |
+| Julian Tile | Squarespace ?format=json API | ✅ Complete | 645 | 645 | 645 |
+| Centanni | Wix SSR warmup JSON (centannitile.com) | ✅ Complete | 213 | 213 | 213 |
+| Artistic Tile | Shopify /products.json API | ✅ Complete | 1831 | 1811 | 1811 |
+| INAX Tile | WordPress HTML scraper (inaxtile.com) | ✅ Complete | 304 | 303 | 303 |
+
+Notes on unanalyzed counts:
+- Stone Tile: 6 unanalyzed — no product_images rows (scraper stored Magento placeholder URLs in thumbnail_url but wrote no image rows)
+- Artistic Tile: 20 unanalyzed — 15 null thumbnail_url, 4 dead CDN URLs (404), 1 PDF URL; not fixable without re-scrape
+- INAX: 1 unanalyzed (OMBRE BORDER, now fixed 2026-07-09 — was missing product_images row)
+
 ### Supplier IDs (used in supplier_id column)
-stone_tile, ames, centura, tierra_sol, cs_tile, julian, centanni
+stone_tile, ames, centura, tierra_sol, cs_tile, julian, centanni, artistic_tile, inax
 ## Pipeline — How New Suppliers Get Added
 ### Step 1: Scrape
 - Write a supplier-specific scraper (Python with requests+BeautifulSoup or Node.js with cheerio)

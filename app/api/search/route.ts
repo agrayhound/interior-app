@@ -112,10 +112,12 @@ export async function POST(req: NextRequest) {
     const CANDIDATE_POOL = clampedColorWeight > 0 ? Math.max(offset + 1000, 1000) : offset + PAGE_SIZE;
     const fetchCount = CANDIDATE_POOL;
 
-    // Parse query dominant color from element.color_hexes (provided by /api/identify)
-    const queryHex = element.color_hexes?.[0] ?? null;
+    // Parse query dominant color from element.color_hexes (provided by /api/identify).
+    // Skip RGB path if identify flagged color_reliable=false (e.g. grey placeholder thumbnail).
+    const colorReliable = (element as Record<string,unknown>).color_reliable !== false;
+    const queryHex = (colorReliable && element.color_hexes?.[0]) ? element.color_hexes[0] : null;
     const queryRgb = queryHex ? hexToRgb(queryHex) : null;
-    console.log(`[search] queryHex=${queryHex ?? "(none — no color_hexes, will use text cosine fallback)"} queryRgb=${queryRgb ? JSON.stringify(queryRgb) : "null"}`);
+    console.log(`[search] queryHex=${queryHex ?? "(none)"} colorReliable=${colorReliable} queryRgb=${queryRgb ? JSON.stringify(queryRgb) : "null"}`);
 
     // Skip CLIP for base64 data URLs — Modal endpoint requires a fetchable URL
     const clipSource = imageData ? null : imageUrl;

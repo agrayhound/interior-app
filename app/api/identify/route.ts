@@ -60,16 +60,61 @@ export async function POST(req: NextRequest) {
       text = text.split("```")[1];
       if (text.startsWith("json")) text = text.slice(4);
     }
-    const { elements } = JSON.parse(text);
 
-    console.log(`[identify] Claude returned ${(elements ?? []).length} element(s):`);
-    for (const el of (elements ?? [])) {
-      console.log(`  [identify]   id=${el.id} label="${el.label}" material=${el.material} category=${el.category} is_tile=${el.is_tile}`);
-      console.log(`  [identify]   colors=${JSON.stringify(el.colors)}`);
-      console.log(`  [identify]   color_hexes=${JSON.stringify(el.color_hexes)}`);
+    let elements: unknown[];
+    try {
+      ({ elements } = JSON.parse(text));
+    } catch {
+      // Claude occasionally returns truncated or slightly malformed JSON (e.g. from
+      // large Pinterest images). Attempt to salvage by extracting the outermost {...}.
+      console.warn("[identify] JSON.parse failed, attempting regex salvage. raw length:", text.length);
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          ({ elements } = JSON.parse(match[0]));
+          console.warn("[identify] regex salvage succeeded");
+        } catch (e2) {
+          console.error("[identify] regex salvage also failed:", e2, "\nraw text:", text.slice(0, 500));
+          return NextResponse.json({ error: "Could not parse Claude response as JSON — try a different image" }, { status: 422 });
+        }
+      } else {
+        console.error("[identify] no JSON object found in response. raw text:", text.slice(0, 500));
+        return NextResponse.json({ error: "Claude returned no JSON — try a different image" }, { status: 422 });
+      }
     }
 
-    return NextResponse.json({ elements: elements ?? [] });
+    const safeElements = (elements ?? []) as Array<{
+      id: string; label: string; material: string; colors: string[];
+      color_hexes?: string[]; finish: string; category: string; is_tile: boolean;
+    }>;
+
+    // Near-grey detection: if the dominant extracted hex has very low saturation
+    // (max channel − min channel < 15), the source image is likely a grey placeholder
+    // swatch card rather than the actual tile. Flag so the search route skips RGB
+    // distance matching and uses text-based color embedding instead.
+    for (const el of safeElements) {
+      const hex = el.color_hexes?.[0];
+      if (hex) {
+        const m = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+        if (m) {
+          const [r, g, b] = [parseInt(m[1],16), parseInt(m[2],16), parseInt(m[3],16)];
+          const saturation = Math.max(r,g,b) - Math.min(r,g,b);
+          if (saturation < 15) {
+            (el as Record<string,unknown>).color_reliable = false;
+            console.warn(`[identify] near-grey dominant hex ${hex} (saturation=${saturation}) — flagging color_reliable=false for "${el.label}"`);
+          }
+        }
+      }
+    }
+
+    console.log(`[identify] Claude returned ${safeElements.length} element(s):`);
+    for (const el of safeElements) {
+      console.log(`  [identify]   id=${el.id} label="${el.label}" material=${el.material} category=${el.category} is_tile=${el.is_tile}`);
+      console.log(`  [identify]   colors=${JSON.stringify(el.colors)}`);
+      console.log(`  [identify]   color_hexes=${JSON.stringify(el.color_hexes)} color_reliable=${(el as Record<string,unknown>).color_reliable ?? true}`);
+    }
+
+    return NextResponse.json({ elements: safeElements });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[/api/identify]", message);
