@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
 
     // Parse query dominant color from element.color_hexes (provided by /api/identify).
     // Skip RGB path if identify flagged color_reliable=false (e.g. grey placeholder thumbnail).
-    const colorReliable = (element as Record<string,unknown>).color_reliable !== false;
+    const colorReliable = (element as unknown as Record<string,unknown>).color_reliable !== false;
     const queryHex = (colorReliable && element.color_hexes?.[0]) ? element.color_hexes[0] : null;
     const queryRgb = queryHex ? hexToRgb(queryHex) : null;
     console.log(`[search] queryHex=${queryHex ?? "(none)"} colorReliable=${colorReliable} queryRgb=${queryRgb ? JSON.stringify(queryRgb) : "null"}`);
