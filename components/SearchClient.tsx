@@ -929,7 +929,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                   {loc === "All" ? "All locations" : loc}
                   {loc !== "All" && (
                     <span className="ml-1 opacity-60">
-                      ({loc === "All" ? results.length : results.filter(r => supplierServesLocation(r.supplier_id, loc)).length})
+                      ({results.filter(r => supplierServesLocation(r.supplier_id, loc)).length})
                     </span>
                   )}
                 </button>
