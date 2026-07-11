@@ -86,11 +86,7 @@ function supplierServesLocation(supplierId: string, location: string): boolean {
 const LOCATION_PILLS = ["All", "Vancouver", "Calgary", "Edmonton", "Toronto"] as const;
 type LocationFilter = typeof LOCATION_PILLS[number];
 
-const PRICE_MAX = 200;
-const MATERIAL_OPTIONS = ["Marble","Concrete","Stone","Wood","Ceramic","Terrazzo","Zellige","Geometric","Porcelain","Slate"];
-const FINISH_OPTIONS   = ["Matte","Gloss","Satin","Polished","Rough","Brushed"];
-const ROOM_OPTIONS     = ["Bathroom","Kitchen","Floor","Feature Wall","Backsplash","Outdoor","Commercial"];
-const STYLE_OPTIONS    = ["Minimalist","Contemporary","Rustic","Mediterranean","Scandinavian","Industrial","Coastal","Traditional","Japandi"];
+const PRICE_MAX = 200; // sentinel for "no price filter set"
 
 function toggleSet(set: Set<string>, item: string): Set<string> {
   const next = new Set(set);
@@ -108,18 +104,20 @@ function FilterSection({ title, children }: { title: string; children: React.Rea
 }
 
 function ChipGroup({ options, selected, onChange }: {
-  options: string[]; selected: Set<string>; onChange: (s: Set<string>) => void;
+  options: Array<{ value: string; count: number }>;
+  selected: Set<string>;
+  onChange: (s: Set<string>) => void;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {options.map(opt => (
-        <button key={opt} onClick={() => onChange(toggleSet(selected, opt))}
+      {options.map(({ value, count }) => (
+        <button key={value} onClick={() => onChange(toggleSet(selected, value))}
           className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-            selected.has(opt)
+            selected.has(value)
               ? "bg-stone-600 text-white"
               : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
           }`}>
-          {opt}
+          {value} <span className="opacity-50">({count})</span>
         </button>
       ))}
     </div>
@@ -992,18 +990,77 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
 
         {/* Search results */}
         {results && results.length > 0 && (() => {
-          const activeFilterCount =
-            (filterLocation !== "All" ? 1 : 0) +
-            (priceRange[0] > 0 || priceRange[1] < PRICE_MAX ? 1 : 0) +
-            (filterMaterials.size > 0 ? 1 : 0) +
-            (filterFinishes.size > 0 ? 1 : 0) +
-            (filterRooms.size > 0 ? 1 : 0) +
-            (filterStyles.size > 0 ? 1 : 0) +
-            (filterSuppliers.size > 0 ? 1 : 0);
+          // --- Price bounds from the full result set ---
+          let rawPriceMin = Infinity, rawPriceMax = 0;
+          for (const r of results) {
+            if (r.price_cad_min) {
+              if (r.price_cad_min < rawPriceMin) rawPriceMin = r.price_cad_min;
+              if (r.price_cad_min > rawPriceMax) rawPriceMax = r.price_cad_min;
+            }
+          }
+          const priceBoundsMin = rawPriceMin === Infinity ? 0 : Math.floor(rawPriceMin);
+          const priceBoundsMax = rawPriceMax === 0 ? PRICE_MAX : Math.ceil(rawPriceMax);
+          // priceRange [0, PRICE_MAX] is the sentinel meaning "no price filter"
+          const isDefaultPrice = priceRange[0] === 0 && priceRange[1] === PRICE_MAX;
+          const effectivePriceRange: [number, number] = isDefaultPrice
+            ? [priceBoundsMin, priceBoundsMax]
+            : [Math.max(priceRange[0], priceBoundsMin), Math.min(priceRange[1], priceBoundsMax)];
 
+          // --- Per-dimension facet counts (each dimension excludes its own filter) ---
+          function passesExcept(r: SearchResult, exclude: string): boolean {
+            if (exclude !== "location" && filterLocation !== "All" && !supplierServesLocation(r.supplier_id, filterLocation)) return false;
+            if (exclude !== "price" && !isDefaultPrice) {
+              if (!r.price_cad_min || r.price_cad_min < priceRange[0] || r.price_cad_min > priceRange[1]) return false;
+            }
+            if (exclude !== "material" && filterMaterials.size > 0 && !filterMaterials.has(r.material_look ?? "")) return false;
+            if (exclude !== "finish" && filterFinishes.size > 0 && !filterFinishes.has(r.finish_look ?? "")) return false;
+            if (exclude !== "room" && filterRooms.size > 0 && !(r.room_suitability ?? []).some(s => filterRooms.has(s))) return false;
+            if (exclude !== "style" && filterStyles.size > 0 && !(r.style_tags ?? []).some(s => filterStyles.has(s))) return false;
+            if (exclude !== "supplier" && filterSuppliers.size > 0 && !filterSuppliers.has(r.supplier_id)) return false;
+            return true;
+          }
+
+          const matCounts = new Map<string, number>();
+          const finCounts = new Map<string, number>();
+          const roomCounts = new Map<string, number>();
+          const styleCounts = new Map<string, number>();
+          const suppCounts = new Map<string, number>();
+
+          for (const r of results) {
+            if (passesExcept(r, "material") && r.material_look)
+              matCounts.set(r.material_look, (matCounts.get(r.material_look) ?? 0) + 1);
+            if (passesExcept(r, "finish") && r.finish_look)
+              finCounts.set(r.finish_look, (finCounts.get(r.finish_look) ?? 0) + 1);
+            if (passesExcept(r, "room"))
+              for (const room of r.room_suitability ?? [])
+                roomCounts.set(room, (roomCounts.get(room) ?? 0) + 1);
+            if (passesExcept(r, "style"))
+              for (const style of r.style_tags ?? [])
+                styleCounts.set(style, (styleCounts.get(style) ?? 0) + 1);
+            if (passesExcept(r, "supplier"))
+              suppCounts.set(r.supplier_id, (suppCounts.get(r.supplier_id) ?? 0) + 1);
+          }
+
+          function sortedFacet(m: Map<string, number>) {
+            return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).map(([value, count]) => ({ value, count }));
+          }
+          const materialOptions = sortedFacet(matCounts);
+          const finishOptions   = sortedFacet(finCounts);
+          const roomOptions     = sortedFacet(roomCounts);
+          const styleOptions    = sortedFacet(styleCounts);
+          const supplierOptions = sortedFacet(suppCounts);
+
+          // Location pill counts (exclude own filter when counting)
+          const locCounts: Partial<Record<string, number>> = {};
+          for (const loc of LOCATION_PILLS) {
+            if (loc === "All") continue;
+            locCounts[loc] = results.filter(r => passesExcept(r, "location") && supplierServesLocation(r.supplier_id, loc)).length;
+          }
+
+          // --- Apply all filters to get displayed set ---
           const displayedResults = results.filter(r => {
             if (filterLocation !== "All" && !supplierServesLocation(r.supplier_id, filterLocation)) return false;
-            if (priceRange[0] > 0 || priceRange[1] < PRICE_MAX) {
+            if (!isDefaultPrice) {
               if (!r.price_cad_min || r.price_cad_min < priceRange[0] || r.price_cad_min > priceRange[1]) return false;
             }
             if (filterMaterials.size > 0 && !filterMaterials.has(r.material_look ?? "")) return false;
@@ -1013,6 +1070,15 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
             if (filterSuppliers.size > 0 && !filterSuppliers.has(r.supplier_id)) return false;
             return true;
           });
+
+          const activeFilterCount =
+            (filterLocation !== "All" ? 1 : 0) +
+            (!isDefaultPrice ? 1 : 0) +
+            (filterMaterials.size > 0 ? 1 : 0) +
+            (filterFinishes.size > 0 ? 1 : 0) +
+            (filterRooms.size > 0 ? 1 : 0) +
+            (filterStyles.size > 0 ? 1 : 0) +
+            (filterSuppliers.size > 0 ? 1 : 0);
 
           return (
           <>
@@ -1038,49 +1104,69 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
               <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
                 <FilterSection title="Location">
                   <div className="flex flex-wrap gap-2">
-                    {LOCATION_PILLS.map(loc => (
-                      <button key={loc} onClick={() => setFilterLocation(loc)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filterLocation === loc ? "bg-stone-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"}`}>
-                        {loc === "All" ? "All locations" : loc}
-                      </button>
-                    ))}
+                    {LOCATION_PILLS.map(loc => {
+                      const count = loc === "All" ? results.length : (locCounts[loc] ?? 0);
+                      return (
+                        <button key={loc} onClick={() => setFilterLocation(loc)}
+                          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filterLocation === loc ? "bg-stone-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"}`}>
+                          {loc === "All" ? "All locations" : loc}
+                          {loc !== "All" && <span className="opacity-50 ml-1">({count})</span>}
+                        </button>
+                      );
+                    })}
                   </div>
                 </FilterSection>
 
                 <FilterSection title="Price (CA$/ft²)">
-                  <DualRangeSlider min={0} max={PRICE_MAX} value={priceRange} onChange={setPriceRange} />
+                  <DualRangeSlider
+                    min={priceBoundsMin}
+                    max={priceBoundsMax}
+                    value={effectivePriceRange}
+                    onChange={setPriceRange}
+                  />
                 </FilterSection>
 
-                <FilterSection title="Material">
-                  <ChipGroup options={MATERIAL_OPTIONS} selected={filterMaterials} onChange={setFilterMaterials} />
-                </FilterSection>
+                {materialOptions.length > 0 && (
+                  <FilterSection title="Material">
+                    <ChipGroup options={materialOptions} selected={filterMaterials} onChange={setFilterMaterials} />
+                  </FilterSection>
+                )}
 
-                <FilterSection title="Finish">
-                  <ChipGroup options={FINISH_OPTIONS} selected={filterFinishes} onChange={setFilterFinishes} />
-                </FilterSection>
+                {finishOptions.length > 0 && (
+                  <FilterSection title="Finish">
+                    <ChipGroup options={finishOptions} selected={filterFinishes} onChange={setFilterFinishes} />
+                  </FilterSection>
+                )}
 
-                <FilterSection title="Room">
-                  <ChipGroup options={ROOM_OPTIONS} selected={filterRooms} onChange={setFilterRooms} />
-                </FilterSection>
+                {roomOptions.length > 0 && (
+                  <FilterSection title="Room">
+                    <ChipGroup options={roomOptions} selected={filterRooms} onChange={setFilterRooms} />
+                  </FilterSection>
+                )}
 
-                <FilterSection title="Style">
-                  <ChipGroup options={STYLE_OPTIONS} selected={filterStyles} onChange={setFilterStyles} />
-                </FilterSection>
+                {styleOptions.length > 0 && (
+                  <FilterSection title="Style">
+                    <ChipGroup options={styleOptions} selected={filterStyles} onChange={setFilterStyles} />
+                  </FilterSection>
+                )}
 
-                <FilterSection title="Supplier">
-                  <div className="space-y-2.5">
-                    {Object.entries(SUPPLIER_LABELS).map(([id, label]) => (
-                      <label key={id} className="flex items-center gap-2.5 cursor-pointer group">
-                        <input type="checkbox" checked={filterSuppliers.has(id)}
-                          onChange={() => setFilterSuppliers(toggleSet(filterSuppliers, id))}
-                          className="accent-stone-500 w-3.5 h-3.5 cursor-pointer shrink-0" />
-                        <span className={`text-xs transition-colors ${filterSuppliers.has(id) ? "text-neutral-100" : "text-neutral-400 group-hover:text-neutral-200"}`}>
-                          {label}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </FilterSection>
+                {supplierOptions.length > 0 && (
+                  <FilterSection title="Supplier">
+                    <div className="space-y-2.5">
+                      {supplierOptions.map(({ value: id, count }) => (
+                        <label key={id} className="flex items-center gap-2.5 cursor-pointer group">
+                          <input type="checkbox" checked={filterSuppliers.has(id)}
+                            onChange={() => setFilterSuppliers(toggleSet(filterSuppliers, id))}
+                            className="accent-stone-500 w-3.5 h-3.5 cursor-pointer shrink-0" />
+                          <span className={`text-xs transition-colors flex-1 ${filterSuppliers.has(id) ? "text-neutral-100" : "text-neutral-400 group-hover:text-neutral-200"}`}>
+                            {supplierLabel(id)}
+                          </span>
+                          <span className="text-xs text-neutral-600">{count}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </FilterSection>
+                )}
               </div>
 
               <div className="px-5 py-4 border-t border-neutral-700/60 shrink-0">
