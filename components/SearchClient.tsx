@@ -58,7 +58,30 @@ const SUPPLIER_CITY: Record<string, string> = {
   inax:          "Vancouver",
 };
 
-const LOCATION_PILLS = ["Vancouver", "Calgary", "Edmonton", "Toronto", "All"] as const;
+// Supplier → cities they serve (mirrors API route — used for client-side result filtering)
+const SUPPLIER_LOCATIONS: Record<string, string[]> = {
+  stone_tile:    ["Toronto","Montreal","Calgary","Vancouver"],
+  ames:          ["Vancouver","Burnaby","Calgary","Edmonton","Winnipeg"],
+  centura:       ["Calgary","Edmonton","Halifax","Hamilton","London","Montreal","Ottawa","Peterborough","Quebec City","St. Johns","Toronto","Vancouver"],
+  tierra_sol:    ["Calgary","Vancouver"],
+  cs_tile:       ["Burnaby"],
+  julian:        ["Langley","Burnaby","Calgary","Edmonton","Winnipeg"],
+  centanni:      ["Burnaby"],
+  ann_sacks:     ["Vancouver"],
+  artistic_tile: ["Vancouver"],
+  inax:          ["Vancouver"],
+};
+
+// Vancouver metro: Burnaby/Langley/etc. all count as "Vancouver"
+const VANCOUVER_METRO = new Set(["Vancouver","Burnaby","Langley","North Vancouver","Surrey","Richmond"]);
+
+function supplierServesLocation(supplierId: string, location: string): boolean {
+  const cities = SUPPLIER_LOCATIONS[supplierId] ?? [];
+  if (location === "Vancouver") return cities.some(c => VANCOUVER_METRO.has(c));
+  return cities.includes(location);
+}
+
+const LOCATION_PILLS = ["All", "Vancouver", "Calgary", "Edmonton", "Toronto"] as const;
 type LocationFilter = typeof LOCATION_PILLS[number];
 
 function supplierLabel(id: string) {
@@ -250,9 +273,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [resultOffset, setResultOffset] = useState(0);
   const [colorWeight, setColorWeight] = useState(0.5);
-  const [location, setLocation] = useState<LocationFilter>("Vancouver");
+  const [location, setLocation] = useState<LocationFilter>("All");
   // Stored query params so load more can re-use them without re-analysing
-  const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number; location: LocationFilter } | null>(null);
+  const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
   // Cache of the last /api/identify response, keyed on the exact image source.
   // Stores the in-flight promise so it's populated synchronously — this both
   // prevents duplicate Claude calls when two clicks fire before the first
@@ -293,9 +316,10 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const rerunSearch = useCallback(() => {
     const q = lastQuery.current;
     if (!q) return;
-    const query = { ...q, colorWeight, location };
+    const query = { ...q, colorWeight };
     lastQuery.current = query;
     setResults(null);
+    setLocation("All");
     setHasMore(false);
     setResultOffset(0);
     setSearchError("");
@@ -304,7 +328,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element: query.element, imageUrl: query.imageUrl, imageData: query.imageData, colorWeight, location, offset: 0 }),
+          body: JSON.stringify({ element: query.element, imageUrl: query.imageUrl, imageData: query.imageData, colorWeight, offset: 0 }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Search failed");
@@ -316,7 +340,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         setSearchError(e instanceof Error ? e.message : "Something went wrong");
       }
     });
-  }, [colorWeight, location]);
+  }, [colorWeight]);
 
   // Region selection state
   const imgRef = useRef<HTMLImageElement>(null);
@@ -535,6 +559,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setElements(null);
     setSelectedId(null);
     setResults(null);
+    setLocation("All");
     setHasMore(false);
     setResultOffset(0);
     lastQuery.current = null;
@@ -549,11 +574,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const searchRes = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element: el, imageData, colorWeight, location }),
+          body: JSON.stringify({ element: el, imageData, colorWeight }),
         });
         const searchData = await searchRes.json();
         if (!searchRes.ok) throw new Error(searchData.error ?? "Search failed");
-        lastQuery.current = { element: el, imageData, colorWeight, location };
+        lastQuery.current = { element: el, imageData, colorWeight };
         setResultOffset(10);
         setHasMore(searchData.hasMore ?? false);
         setResults(searchData.results ?? []);
@@ -566,6 +591,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   function handleSelectElement(element: Element) {
     setSelectedId(element.id);
     setResults(null);
+    setLocation("All");
     setSearchError("");
     setHasMore(false);
     setResultOffset(0);
@@ -576,11 +602,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element, imageUrl, colorWeight, location }),
+          body: JSON.stringify({ element, imageUrl, colorWeight }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Search failed");
-        lastQuery.current = { element, imageUrl, colorWeight, location };
+        lastQuery.current = { element, imageUrl, colorWeight };
         setResultOffset(10);
         setHasMore(data.hasMore ?? false);
         setResults(data.results ?? []);
@@ -687,24 +713,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
           {identifyError && (
             <p className="mt-3 text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-lg px-4 py-2">{identifyError}</p>
           )}
-        </div>
-
-        {/* Location filter pills */}
-        <div className="max-w-2xl mx-auto mb-4 flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-neutral-500 shrink-0">Show suppliers in:</span>
-          {LOCATION_PILLS.map((loc) => (
-            <button
-              key={loc}
-              onClick={() => setLocation(loc)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                location === loc
-                  ? "bg-stone-600 text-white"
-                  : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
-              }`}
-            >
-              {loc === "All" ? "All locations" : loc}
-            </button>
-          ))}
         </div>
 
         {/* Selection hint / status bar — sits directly below the input, above the preview.
@@ -886,9 +894,13 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         )}
 
         {/* Search results */}
-        {results && results.length > 0 && (
+        {results && results.length > 0 && (() => {
+          const displayedResults = location === "All"
+            ? results
+            : results.filter(r => supplierServesLocation(r.supplier_id, location));
+          return (
           <div className="mb-20">
-            <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center gap-3 mb-4">
               {croppedDataUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -901,11 +913,38 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                 {results.length} matching tiles found
               </h2>
             </div>
+            {/* Location filter — post-search, client-side only */}
+            <div className="flex items-center gap-2 flex-wrap mb-6">
+              <span className="text-xs text-neutral-500 shrink-0">Filter by city:</span>
+              {LOCATION_PILLS.map((loc) => (
+                <button
+                  key={loc}
+                  onClick={() => setLocation(loc)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    location === loc
+                      ? "bg-stone-600 text-white"
+                      : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
+                  }`}
+                >
+                  {loc === "All" ? "All locations" : loc}
+                  {loc !== "All" && (
+                    <span className="ml-1 opacity-60">
+                      ({loc === "All" ? results.length : results.filter(r => supplierServesLocation(r.supplier_id, loc)).length})
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {results.map((tile) => (
+              {displayedResults.map((tile) => (
                 <TileCard key={tile.id ?? tile.sku} tile={tile} />
               ))}
             </div>
+            {displayedResults.length === 0 && (
+              <p className="text-center text-neutral-500 text-sm py-8">
+                No results from {location} suppliers. Try another city or All locations.
+              </p>
+            )}
             {hasMore && (
               <div className="flex justify-center mt-8">
                 <button
@@ -925,7 +964,8 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {results && results.length === 0 && (
           <div className="text-center py-12 text-neutral-500">
