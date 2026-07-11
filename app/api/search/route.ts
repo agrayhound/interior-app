@@ -193,7 +193,7 @@ export async function POST(req: NextRequest) {
     // Location filter — restrict to suppliers that serve the requested city/metro
     const allowedSuppliers = location && location !== "All" ? suppliersForLocation(location) : null;
     if (allowedSuppliers) {
-      console.log(`[search] location="${location}" → suppliers: ${[...allowedSuppliers].join(", ")}`);
+      console.log(`[search] location="${location}" → suppliers: ${Array.from(allowedSuppliers).join(", ")}`);
       allResults = (allResults ?? []).filter((r: Record<string, unknown>) =>
         allowedSuppliers.has(r.supplier_id as string)
       );
