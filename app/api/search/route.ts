@@ -82,6 +82,38 @@ function cosineSim(a: number[], b: number[]): number {
 
 const PAGE_SIZE = 10;
 
+// Supplier → cities they serve
+const SUPPLIER_LOCATIONS: Record<string, string[]> = {
+  stone_tile:    ["Toronto","Montreal","Calgary","Vancouver"],
+  ames:          ["Vancouver","Burnaby","Calgary","Edmonton","Winnipeg"],
+  centura:       ["Calgary","Edmonton","Halifax","Hamilton","London","Montreal","Ottawa","Peterborough","Quebec City","St. Johns","Toronto","Vancouver"],
+  tierra_sol:    ["Calgary","Vancouver"],
+  cs_tile:       ["Burnaby"],
+  julian:        ["Langley","Burnaby","Calgary","Edmonton","Winnipeg"],
+  centanni:      ["Burnaby"],
+  ann_sacks:     ["Vancouver"],
+  artistic_tile: ["Vancouver"],
+  inax:          ["Vancouver"],
+};
+
+// Cities treated as equivalent for filtering purposes
+const METRO_GROUPS: Record<string, string[]> = {
+  Vancouver: ["Vancouver","Burnaby","Langley","North Vancouver","Surrey","Richmond"],
+};
+
+function resolveLocationCities(location: string): string[] {
+  return METRO_GROUPS[location] ?? [location];
+}
+
+function suppliersForLocation(location: string): Set<string> {
+  const cities = new Set(resolveLocationCities(location).map(c => c.toLowerCase()));
+  const result = new Set<string>();
+  for (const [id, locs] of Object.entries(SUPPLIER_LOCATIONS)) {
+    if (locs.some(l => cities.has(l.toLowerCase()))) result.add(id);
+  }
+  return result;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as {
@@ -90,8 +122,9 @@ export async function POST(req: NextRequest) {
       imageData?: string;
       offset?: number;
       colorWeight?: number;
+      location?: string;
     };
-    const { element, imageUrl, imageData, offset = 0, colorWeight = 0.5 } = body;
+    const { element, imageUrl, imageData, offset = 0, colorWeight = 0.5, location } = body;
     if (!element) {
       return NextResponse.json({ error: "element required" }, { status: 400 });
     }
@@ -155,6 +188,15 @@ export async function POST(req: NextRequest) {
       });
       if (error) throw new Error(`Supabase RPC error: ${error.message}`);
       allResults = data;
+    }
+
+    // Location filter — restrict to suppliers that serve the requested city/metro
+    const allowedSuppliers = location && location !== "All" ? suppliersForLocation(location) : null;
+    if (allowedSuppliers) {
+      console.log(`[search] location="${location}" → suppliers: ${[...allowedSuppliers].join(", ")}`);
+      allResults = (allResults ?? []).filter((r: Record<string, unknown>) =>
+        allowedSuppliers.has(r.supplier_id as string)
+      );
     }
 
     // Normalize RPC field names: product_id → id, colours → color_palette

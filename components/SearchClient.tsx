@@ -32,8 +32,34 @@ interface SearchResult {
 }
 
 const SUPPLIER_LABELS: Record<string, string> = {
-  stone_tile: "Stone Tile",
+  stone_tile:    "Stone Tile",
+  ames:          "Ames Tile",
+  centura:       "Centura Tile",
+  tierra_sol:    "Tierra Sol",
+  cs_tile:       "C&S Tile",
+  julian:        "Julian Tile",
+  centanni:      "Centanni Tile",
+  artistic_tile: "Artistic Tile",
+  inax:          "INAX Tile",
+  ann_sacks:     "Ann Sacks",
 };
+
+// Primary city shown on product card
+const SUPPLIER_CITY: Record<string, string> = {
+  stone_tile:    "Vancouver · Calgary · Toronto",
+  ames:          "Vancouver · Calgary",
+  centura:       "Vancouver · Calgary · Toronto",
+  tierra_sol:    "Vancouver · Calgary",
+  cs_tile:       "Burnaby",
+  julian:        "Vancouver · Calgary",
+  centanni:      "Burnaby",
+  ann_sacks:     "Vancouver",
+  artistic_tile: "Vancouver",
+  inax:          "Vancouver",
+};
+
+const LOCATION_PILLS = ["Vancouver", "Calgary", "Edmonton", "Toronto", "All"] as const;
+type LocationFilter = typeof LOCATION_PILLS[number];
 
 function supplierLabel(id: string) {
   return SUPPLIER_LABELS[id] ?? id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -158,9 +184,12 @@ function TileCard({ tile }: { tile: SearchResult | Tile }) {
       </div>
       <div className="p-4 space-y-3">
         <div>
-          <p className="text-xs text-neutral-500 font-medium uppercase tracking-wider mb-1">
+          <p className="text-xs text-neutral-500 font-medium uppercase tracking-wider mb-0.5">
             {supplierLabel(tile.supplier_id)}
           </p>
+          {SUPPLIER_CITY[tile.supplier_id] && (
+            <p className="text-xs text-neutral-600 mb-1">{SUPPLIER_CITY[tile.supplier_id]}</p>
+          )}
           <h3 className="text-sm font-semibold text-neutral-100 leading-tight line-clamp-2">{tile.name}</h3>
         </div>
         {tile.style_tags && tile.style_tags.length > 0 && (
@@ -221,8 +250,9 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [resultOffset, setResultOffset] = useState(0);
   const [colorWeight, setColorWeight] = useState(0.5);
+  const [location, setLocation] = useState<LocationFilter>("Vancouver");
   // Stored query params so load more can re-use them without re-analysing
-  const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
+  const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number; location: LocationFilter } | null>(null);
   // Cache of the last /api/identify response, keyed on the exact image source.
   // Stores the in-flight promise so it's populated synchronously — this both
   // prevents duplicate Claude calls when two clicks fire before the first
@@ -263,7 +293,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const rerunSearch = useCallback(() => {
     const q = lastQuery.current;
     if (!q) return;
-    const query = { ...q, colorWeight };
+    const query = { ...q, colorWeight, location };
     lastQuery.current = query;
     setResults(null);
     setHasMore(false);
@@ -274,7 +304,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element: query.element, imageUrl: query.imageUrl, imageData: query.imageData, colorWeight, offset: 0 }),
+          body: JSON.stringify({ element: query.element, imageUrl: query.imageUrl, imageData: query.imageData, colorWeight, location, offset: 0 }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Search failed");
@@ -286,7 +316,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         setSearchError(e instanceof Error ? e.message : "Something went wrong");
       }
     });
-  }, [colorWeight]);
+  }, [colorWeight, location]);
 
   // Region selection state
   const imgRef = useRef<HTMLImageElement>(null);
@@ -519,11 +549,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const searchRes = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element: el, imageData, colorWeight }),
+          body: JSON.stringify({ element: el, imageData, colorWeight, location }),
         });
         const searchData = await searchRes.json();
         if (!searchRes.ok) throw new Error(searchData.error ?? "Search failed");
-        lastQuery.current = { element: el, imageData, colorWeight };
+        lastQuery.current = { element: el, imageData, colorWeight, location };
         setResultOffset(10);
         setHasMore(searchData.hasMore ?? false);
         setResults(searchData.results ?? []);
@@ -546,11 +576,11 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
         const res = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ element, imageUrl, colorWeight }),
+          body: JSON.stringify({ element, imageUrl, colorWeight, location }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Search failed");
-        lastQuery.current = { element, imageUrl, colorWeight };
+        lastQuery.current = { element, imageUrl, colorWeight, location };
         setResultOffset(10);
         setHasMore(data.hasMore ?? false);
         setResults(data.results ?? []);
@@ -657,6 +687,24 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
           {identifyError && (
             <p className="mt-3 text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-lg px-4 py-2">{identifyError}</p>
           )}
+        </div>
+
+        {/* Location filter pills */}
+        <div className="max-w-2xl mx-auto mb-4 flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-neutral-500 shrink-0">Show suppliers in:</span>
+          {LOCATION_PILLS.map((loc) => (
+            <button
+              key={loc}
+              onClick={() => setLocation(loc)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                location === loc
+                  ? "bg-stone-600 text-white"
+                  : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
+              }`}
+            >
+              {loc === "All" ? "All locations" : loc}
+            </button>
+          ))}
         </div>
 
         {/* Selection hint / status bar — sits directly below the input, above the preview.
