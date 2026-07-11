@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
     const clampedColorWeight = Math.max(0, Math.min(1, colorWeight));
     // Fetch a larger pool when color reranking is active so color-accurate tiles
     // that aren't top semantic matches can still be surfaced after reranking
-    const CANDIDATE_POOL = clampedColorWeight > 0 ? Math.max(offset + 1000, 1000) : offset + PAGE_SIZE;
+    const CANDIDATE_POOL = clampedColorWeight > 0 ? Math.max(offset + 200, 200) : offset + PAGE_SIZE;
     const fetchCount = CANDIDATE_POOL;
 
     // Parse query dominant color from element.color_hexes (provided by /api/identify).
