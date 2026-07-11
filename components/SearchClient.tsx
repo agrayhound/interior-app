@@ -27,6 +27,8 @@ interface SearchResult {
   supplier_id: string;
   style_tags: string[];
   material_look: string;
+  finish_look?: string;
+  room_suitability?: string[];
   color_palette: string[];
   similarity: number;
 }
@@ -83,6 +85,83 @@ function supplierServesLocation(supplierId: string, location: string): boolean {
 
 const LOCATION_PILLS = ["All", "Vancouver", "Calgary", "Edmonton", "Toronto"] as const;
 type LocationFilter = typeof LOCATION_PILLS[number];
+
+const PRICE_MAX = 200;
+const MATERIAL_OPTIONS = ["Marble","Concrete","Stone","Wood","Ceramic","Terrazzo","Zellige","Geometric","Porcelain","Slate"];
+const FINISH_OPTIONS   = ["Matte","Gloss","Satin","Polished","Rough","Brushed"];
+const ROOM_OPTIONS     = ["Bathroom","Kitchen","Floor","Feature Wall","Backsplash","Outdoor","Commercial"];
+const STYLE_OPTIONS    = ["Minimalist","Contemporary","Rustic","Mediterranean","Scandinavian","Industrial","Coastal","Traditional","Japandi"];
+
+function toggleSet(set: Set<string>, item: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(item)) next.delete(item); else next.add(item);
+  return next;
+}
+
+function FilterSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-3">{title}</h4>
+      {children}
+    </div>
+  );
+}
+
+function ChipGroup({ options, selected, onChange }: {
+  options: string[]; selected: Set<string>; onChange: (s: Set<string>) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map(opt => (
+        <button key={opt} onClick={() => onChange(toggleSet(selected, opt))}
+          className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+            selected.has(opt)
+              ? "bg-stone-600 text-white"
+              : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
+          }`}>
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DualRangeSlider({ min, max, value, onChange }: {
+  min: number; max: number; value: [number, number]; onChange: (v: [number, number]) => void;
+}) {
+  const [lo, hi] = value;
+  const pLo = ((lo - min) / (max - min)) * 100;
+  const pHi = ((hi - min) / (max - min)) * 100;
+  return (
+    <div>
+      <style>{`
+        .dr input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;position:absolute;inset:0;width:100%;height:100%;}
+        .dr input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#a8a29e;border:2px solid #171717;cursor:pointer;pointer-events:auto;margin-top:-7px;}
+        .dr input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#a8a29e;border:2px solid #171717;cursor:pointer;pointer-events:auto;}
+        .dr input[type=range]::-webkit-slider-runnable-track{background:transparent;height:2px;}
+        .dr input[type=range]::-moz-range-track{background:transparent;}
+      `}</style>
+      <div className="relative mt-3" style={{ height: 24 }}>
+        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-neutral-700">
+          <div className="absolute h-full rounded-full bg-stone-500"
+            style={{ left: `${pLo}%`, right: `${100 - pHi}%` }} />
+        </div>
+        <div className="dr relative h-full">
+          <input type="range" min={min} max={max} step={5} value={lo}
+            onChange={e => onChange([Math.min(+e.target.value, hi - 5), hi])}
+            style={{ zIndex: lo > max - 10 ? 5 : 3 }} />
+          <input type="range" min={min} max={max} step={5} value={hi}
+            onChange={e => onChange([lo, Math.max(+e.target.value, lo + 5)])}
+            style={{ zIndex: 4 }} />
+        </div>
+      </div>
+      <div className="flex justify-between text-xs text-neutral-500 mt-2">
+        <span>${lo}/ft²</span>
+        <span>${hi}{hi >= max ? "+" : ""}/ft²</span>
+      </div>
+    </div>
+  );
+}
 
 function supplierLabel(id: string) {
   return SUPPLIER_LABELS[id] ?? id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -273,7 +352,14 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [resultOffset, setResultOffset] = useState(0);
   const [colorWeight, setColorWeight] = useState(0.5);
-  const [location, setLocation] = useState<LocationFilter>("All");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterLocation, setFilterLocation] = useState<LocationFilter>("All");
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, PRICE_MAX]);
+  const [filterMaterials, setFilterMaterials] = useState<Set<string>>(new Set());
+  const [filterFinishes, setFilterFinishes] = useState<Set<string>>(new Set());
+  const [filterRooms, setFilterRooms] = useState<Set<string>>(new Set());
+  const [filterStyles, setFilterStyles] = useState<Set<string>>(new Set());
+  const [filterSuppliers, setFilterSuppliers] = useState<Set<string>>(new Set());
   // Stored query params so load more can re-use them without re-analysing
   const lastQuery = useRef<{ element: Element; imageUrl?: string; imageData?: string; colorWeight: number } | null>(null);
   // Cache of the last /api/identify response, keyed on the exact image source.
@@ -283,6 +369,17 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   // Invalidated whenever the URL changes; a new crop cache-misses automatically
   // because its imageData key differs.
   const identifyCache = useRef<{ imageUrl?: string; imageData?: string; promise: Promise<Element[]> } | null>(null);
+
+  function clearAllFilters() {
+    setFilterLocation("All");
+    setPriceRange([0, PRICE_MAX]);
+    setFilterMaterials(new Set());
+    setFilterFinishes(new Set());
+    setFilterRooms(new Set());
+    setFilterStyles(new Set());
+    setFilterSuppliers(new Set());
+    setFiltersOpen(false);
+  }
 
   function identifyOrReuse(params: { imageUrl?: string; imageData?: string }): Promise<Element[]> {
     const cached = identifyCache.current;
@@ -319,7 +416,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     const query = { ...q, colorWeight };
     lastQuery.current = query;
     setResults(null);
-    setLocation("All");
+    clearAllFilters();
     setHasMore(false);
     setResultOffset(0);
     setSearchError("");
@@ -559,7 +656,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
     setElements(null);
     setSelectedId(null);
     setResults(null);
-    setLocation("All");
+    clearAllFilters();
     setHasMore(false);
     setResultOffset(0);
     lastQuery.current = null;
@@ -591,7 +688,7 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   function handleSelectElement(element: Element) {
     setSelectedId(element.id);
     setResults(null);
-    setLocation("All");
+    clearAllFilters();
     setSearchError("");
     setHasMore(false);
     setResultOffset(0);
@@ -895,75 +992,156 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
 
         {/* Search results */}
         {results && results.length > 0 && (() => {
-          const displayedResults = location === "All"
-            ? results
-            : results.filter(r => supplierServesLocation(r.supplier_id, location));
+          const activeFilterCount =
+            (filterLocation !== "All" ? 1 : 0) +
+            (priceRange[0] > 0 || priceRange[1] < PRICE_MAX ? 1 : 0) +
+            (filterMaterials.size > 0 ? 1 : 0) +
+            (filterFinishes.size > 0 ? 1 : 0) +
+            (filterRooms.size > 0 ? 1 : 0) +
+            (filterStyles.size > 0 ? 1 : 0) +
+            (filterSuppliers.size > 0 ? 1 : 0);
+
+          const displayedResults = results.filter(r => {
+            if (filterLocation !== "All" && !supplierServesLocation(r.supplier_id, filterLocation)) return false;
+            if (priceRange[0] > 0 || priceRange[1] < PRICE_MAX) {
+              if (!r.price_cad_min || r.price_cad_min < priceRange[0] || r.price_cad_min > priceRange[1]) return false;
+            }
+            if (filterMaterials.size > 0 && !filterMaterials.has(r.material_look ?? "")) return false;
+            if (filterFinishes.size > 0 && !filterFinishes.has(r.finish_look ?? "")) return false;
+            if (filterRooms.size > 0 && !(r.room_suitability ?? []).some(s => filterRooms.has(s))) return false;
+            if (filterStyles.size > 0 && !(r.style_tags ?? []).some(s => filterStyles.has(s))) return false;
+            if (filterSuppliers.size > 0 && !filterSuppliers.has(r.supplier_id)) return false;
+            return true;
+          });
+
           return (
-          <div className="mb-20">
-            <div className="flex items-center gap-3 mb-4">
-              {croppedDataUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={croppedDataUrl}
-                  alt="Searched region"
-                  className="w-10 h-10 rounded-lg object-cover border border-neutral-700 shrink-0"
-                />
-              )}
-              <h2 className="text-lg font-semibold text-neutral-100">
-                {results.length} matching tiles found
-              </h2>
-            </div>
-            {/* Location filter — post-search, client-side only */}
-            <div className="flex items-center gap-2 flex-wrap mb-6">
-              <span className="text-xs text-neutral-500 shrink-0">Filter by city:</span>
-              {LOCATION_PILLS.map((loc) => (
-                <button
-                  key={loc}
-                  onClick={() => setLocation(loc)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                    location === loc
-                      ? "bg-stone-600 text-white"
-                      : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"
-                  }`}
-                >
-                  {loc === "All" ? "All locations" : loc}
-                  {loc !== "All" && (
-                    <span className="ml-1 opacity-60">
-                      ({results.filter(r => supplierServesLocation(r.supplier_id, loc)).length})
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {displayedResults.map((tile) => (
-                <TileCard key={tile.id ?? tile.sku} tile={tile} />
-              ))}
-            </div>
-            {displayedResults.length === 0 && (
-              <p className="text-center text-neutral-500 text-sm py-8">
-                No results from {location} suppliers. Try another city or All locations.
-              </p>
+          <>
+            {/* Filter panel overlay */}
+            {filtersOpen && (
+              <div className="fixed inset-0 z-40 bg-black/60" onClick={() => setFiltersOpen(false)} />
             )}
-            {hasMore && (
-              <div className="flex justify-center mt-8">
-                <button
-                  onClick={handleLoadMore}
-                  disabled={isLoadingMore}
-                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-neutral-300 transition-all duration-200"
-                >
-                  {isLoadingMore ? (
-                    <>
-                      <span className="w-3.5 h-3.5 border border-neutral-400 border-t-transparent rounded-full animate-spin" />
-                      Loading…
-                    </>
-                  ) : (
-                    "Load more"
-                  )}
+
+            {/* Filter panel */}
+            <div className={`fixed inset-y-0 right-0 z-50 flex flex-col w-80 max-w-full bg-neutral-900 border-l border-neutral-700/60 shadow-2xl transition-transform duration-300 ease-in-out ${filtersOpen ? "translate-x-0" : "translate-x-full"}`}>
+              <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-700/60 shrink-0">
+                <button onClick={clearAllFilters} className="text-xs text-neutral-400 hover:text-neutral-100 transition-colors">
+                  Clear all
+                </button>
+                <h3 className="text-sm font-semibold text-neutral-100">Filters</h3>
+                <button onClick={() => setFiltersOpen(false)} className="text-neutral-400 hover:text-neutral-100 transition-colors p-1">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
-            )}
-          </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+                <FilterSection title="Location">
+                  <div className="flex flex-wrap gap-2">
+                    {LOCATION_PILLS.map(loc => (
+                      <button key={loc} onClick={() => setFilterLocation(loc)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filterLocation === loc ? "bg-stone-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200"}`}>
+                        {loc === "All" ? "All locations" : loc}
+                      </button>
+                    ))}
+                  </div>
+                </FilterSection>
+
+                <FilterSection title="Price (CA$/ft²)">
+                  <DualRangeSlider min={0} max={PRICE_MAX} value={priceRange} onChange={setPriceRange} />
+                </FilterSection>
+
+                <FilterSection title="Material">
+                  <ChipGroup options={MATERIAL_OPTIONS} selected={filterMaterials} onChange={setFilterMaterials} />
+                </FilterSection>
+
+                <FilterSection title="Finish">
+                  <ChipGroup options={FINISH_OPTIONS} selected={filterFinishes} onChange={setFilterFinishes} />
+                </FilterSection>
+
+                <FilterSection title="Room">
+                  <ChipGroup options={ROOM_OPTIONS} selected={filterRooms} onChange={setFilterRooms} />
+                </FilterSection>
+
+                <FilterSection title="Style">
+                  <ChipGroup options={STYLE_OPTIONS} selected={filterStyles} onChange={setFilterStyles} />
+                </FilterSection>
+
+                <FilterSection title="Supplier">
+                  <div className="space-y-2.5">
+                    {Object.entries(SUPPLIER_LABELS).map(([id, label]) => (
+                      <label key={id} className="flex items-center gap-2.5 cursor-pointer group">
+                        <input type="checkbox" checked={filterSuppliers.has(id)}
+                          onChange={() => setFilterSuppliers(toggleSet(filterSuppliers, id))}
+                          className="accent-stone-500 w-3.5 h-3.5 cursor-pointer shrink-0" />
+                        <span className={`text-xs transition-colors ${filterSuppliers.has(id) ? "text-neutral-100" : "text-neutral-400 group-hover:text-neutral-200"}`}>
+                          {label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </FilterSection>
+              </div>
+
+              <div className="px-5 py-4 border-t border-neutral-700/60 shrink-0">
+                <button onClick={() => setFiltersOpen(false)}
+                  className="w-full py-2.5 bg-stone-600 hover:bg-stone-500 text-white text-sm font-semibold rounded-lg transition-colors">
+                  {activeFilterCount > 0 ? `Show ${displayedResults.length} results` : "Close"}
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-20">
+              <div className="flex items-center gap-3 mb-5">
+                {croppedDataUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={croppedDataUrl} alt="Searched region"
+                    className="w-10 h-10 rounded-lg object-cover border border-neutral-700 shrink-0" />
+                )}
+                <h2 className="text-lg font-semibold text-neutral-100 flex-1">
+                  {activeFilterCount > 0 ? `${displayedResults.length} of ${results.length}` : results.length} matching tiles
+                </h2>
+                <button
+                  onClick={() => setFiltersOpen(true)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                    activeFilterCount > 0
+                      ? "bg-stone-700 border-stone-500 text-stone-200"
+                      : "bg-neutral-900 border-neutral-700 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200"
+                  }`}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h18M7 8h10M11 12h2M13 16h-2" />
+                  </svg>
+                  {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {displayedResults.map((tile) => (
+                  <TileCard key={tile.id ?? tile.sku} tile={tile} />
+                ))}
+              </div>
+              {displayedResults.length === 0 && (
+                <p className="text-center text-neutral-500 text-sm py-12">
+                  No tiles match the active filters.{" "}
+                  <button onClick={clearAllFilters} className="underline hover:text-neutral-300 transition-colors">Clear all filters</button>
+                </p>
+              )}
+              {hasMore && (
+                <div className="flex justify-center mt-8">
+                  <button onClick={handleLoadMore} disabled={isLoadingMore}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-neutral-300 transition-all duration-200">
+                    {isLoadingMore ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border border-neutral-400 border-t-transparent rounded-full animate-spin" />
+                        Loading…
+                      </>
+                    ) : "Load more"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
           );
         })()}
 
