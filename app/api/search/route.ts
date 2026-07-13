@@ -82,33 +82,42 @@ function cosineSim(a: number[], b: number[]): number {
 
 const PAGE_SIZE = 10;
 
-// Supplier → cities they serve
-const SUPPLIER_LOCATIONS: Record<string, string[]> = {
-  stone_tile:    ["Toronto","Montreal","Calgary","Vancouver"],
-  ames:          ["Vancouver","Burnaby","Calgary","Edmonton","Winnipeg"],
-  centura:       ["Calgary","Edmonton","Halifax","Hamilton","London","Montreal","Ottawa","Peterborough","Quebec City","St. Johns","Toronto","Vancouver"],
-  tierra_sol:    ["Calgary","Vancouver"],
-  cs_tile:       ["Burnaby"],
-  julian:        ["Langley","Burnaby","Calgary","Edmonton","Winnipeg"],
-  centanni:      ["Burnaby"],
-  ann_sacks:     ["Vancouver"],
-  artistic_tile: ["Vancouver"],
-  inax:          ["Vancouver"],
-};
-
-// Cities treated as equivalent for filtering purposes
+// Cities treated as equivalent for filtering purposes (app logic, not data)
 const METRO_GROUPS: Record<string, string[]> = {
   Vancouver: ["Vancouver","Burnaby","Langley","North Vancouver","Surrey","Richmond"],
 };
+
+// Module-level cache for supplier locations fetched from Supabase
+let cachedLocations: Record<string, string[]> | null = null;
+let cacheExpiry = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getSupplierLocations(): Promise<Record<string, string[]>> {
+  if (cachedLocations && Date.now() < cacheExpiry) return cachedLocations;
+  const { data, error } = await supabase
+    .from("suppliers")
+    .select("id, locations")
+    .not("locations", "is", null);
+  if (error) throw new Error(`Failed to fetch supplier locations: ${error.message}`);
+  const map: Record<string, string[]> = {};
+  for (const row of (data ?? [])) {
+    if (Array.isArray(row.locations) && row.locations.length > 0) {
+      map[row.id as string] = row.locations as string[];
+    }
+  }
+  cachedLocations = map;
+  cacheExpiry = Date.now() + CACHE_TTL_MS;
+  return map;
+}
 
 function resolveLocationCities(location: string): string[] {
   return METRO_GROUPS[location] ?? [location];
 }
 
-function suppliersForLocation(location: string): Set<string> {
+function suppliersForLocation(supplierLocations: Record<string, string[]>, location: string): Set<string> {
   const cities = new Set(resolveLocationCities(location).map(c => c.toLowerCase()));
   const result = new Set<string>();
-  for (const [id, locs] of Object.entries(SUPPLIER_LOCATIONS)) {
+  for (const [id, locs] of Object.entries(supplierLocations)) {
     if (locs.some(l => cities.has(l.toLowerCase()))) result.add(id);
   }
   return result;
@@ -191,7 +200,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Location filter — restrict to suppliers that serve the requested city/metro
-    const allowedSuppliers = location && location !== "All" ? suppliersForLocation(location) : null;
+    const supplierLocations = await getSupplierLocations();
+    const allowedSuppliers = location && location !== "All" ? suppliersForLocation(supplierLocations, location) : null;
     if (allowedSuppliers) {
       console.log(`[search] location="${location}" → suppliers: ${Array.from(allowedSuppliers).join(", ")}`);
       allResults = (allResults ?? []).filter((r: Record<string, unknown>) =>
