@@ -744,7 +744,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
             <span className="font-semibold text-neutral-100 tracking-tight">Design Matcher</span>
           </div>
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-500">Powered by AI vision</p>
-          {/* TODO: re-enable once Pinterest trial access is approved (app ID 1584653)
           <Link
             href="/pinterest"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-600 transition-all text-xs font-medium text-neutral-300"
@@ -754,7 +753,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
             </svg>
             Browse Pinterest
           </Link>
-          */}
         </div>
       </header>
 
@@ -768,7 +766,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
             <p className="text-neutral-400 text-lg max-w-xl mx-auto">
               Paste a Pinterest, Houzz, or any image URL. Our AI identifies the surfaces — pick the one you want to source.
             </p>
-            {/* TODO: re-enable once Pinterest trial access is approved (app ID 1584653)
             <div className="mt-6">
               <Link
                 href="/pinterest"
@@ -783,7 +780,6 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
                 </svg>
               </Link>
             </div>
-            */}
           </div>
         )}
 

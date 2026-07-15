@@ -46,13 +46,14 @@ Vision analysis fields (populated by analyze_products.py):
 |---|---|---|---|---|---|
 | Stone Tile | GraphQL (Magento 2 PWA) | ✅ Complete | 498 | 492 | 492 |
 | Ames | Cheerio HTML (Magento) | ✅ Complete | 1404 | 1404 | 1404 |
-| Centura | Drupal JSON API | ✅ Complete | 410 | 410 | 410 |
+| Centura | Drupal settings JSON + sitemap, variant explosion (SKU-per-row) | ✅ Complete | 5617 | 5590 | 5590 |
 | Tierra Sol | Playwright + CF cookie | ✅ Complete | 760 | 760 | 760 |
 | C&S Tile | Cheerio HTML (WordPress) | ✅ Complete | 832 | 832 | 832 |
 | Julian Tile | Squarespace ?format=json API | ✅ Complete | 645 | 645 | 645 |
 | Centanni | Wix SSR warmup JSON (centannitile.com) | ✅ Complete | 213 | 213 | 213 |
 | Artistic Tile | Shopify /products.json API | ✅ Complete | 1831 | 1811 | 1811 |
 | INAX Tile | WordPress HTML scraper (inaxtile.com) | ✅ Complete | 304 | 303 | 303 |
+| Ann Sacks | Next.js SSR __NEXT_DATA__ + /en/pdp-sitemap.xml (annsacks.kohler.com) | ✅ Complete | 887 | 869 | 885 |
 
 Notes on unanalyzed counts:
 - Stone Tile: 6 unanalyzed — no product_images rows (scraper stored Magento placeholder URLs in thumbnail_url but wrote no image rows)
@@ -60,7 +61,7 @@ Notes on unanalyzed counts:
 - INAX: 1 unanalyzed (OMBRE BORDER, now fixed 2026-07-09 — was missing product_images row)
 
 ### Supplier IDs (used in supplier_id column)
-stone_tile, ames, centura, tierra_sol, cs_tile, julian, centanni, artistic_tile, inax
+stone_tile, ames, centura, tierra_sol, cs_tile, julian, centanni, artistic_tile, inax, ann_sacks
 ## Pipeline — How New Suppliers Get Added
 ### Step 1: Scrape
 - Write a supplier-specific scraper (Python with requests+BeautifulSoup or Node.js with cheerio)
@@ -196,7 +197,7 @@ final_score = 0.6 × semantic_score + 0.4 × clip_score
 - Estimated cost for full 7-supplier catalog (~5,000 products): ~$15 vision + <$1 embeddings
 
 ## What's Next
-1. Pinterest OAuth integration — UI built (/pinterest page + /api/pinterest proxy). Waiting on Pinterest app approval for v5 API (token returns code=3 "consumer type not supported"). Once approved, boards/pins/search flow is fully wired.
+1. Pinterest OAuth integration — COMPLETE. Full OAuth flow live at /auth/pinterest and /auth/pinterest/callback. Access token stored in httpOnly cookie; refresh token auto-refreshes on 401. /pinterest page shows connect screen when unauthenticated, board browser when connected. Disconnect button clears cookies.
 4. Fal.ai room scene generation (show tile installed in a room)
 5. Expand beyond tiles: flooring, countertops, hardware
 

@@ -392,11 +392,19 @@ function PinCard({ pin, onClick }: { pin: PinterestPin; onClick: () => void }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function PinterestClient() {
+export default function PinterestClient({
+  connected = false,
+  oauthError,
+}: {
+  connected?: boolean;
+  oauthError?: string;
+}) {
   // Boards state
   const [boards, setBoards] = useState<PinterestBoard[] | null>(null);
-  const [boardsLoading, setBoardsLoading] = useState(true);
-  const [apiError, setApiError] = useState<string | null>(null);
+  const [boardsLoading, setBoardsLoading] = useState(connected);
+  const [apiError, setApiError] = useState<string | null>(
+    oauthError ? `Pinterest error: ${oauthError}` : null
+  );
 
   // Board view
   const [activeBoard, setActiveBoard] = useState<PinterestBoard | null>(null);
@@ -408,8 +416,9 @@ export default function PinterestClient() {
   // Selected pin for search
   const [selectedPin, setSelectedPin] = useState<{ url: string; title: string } | null>(null);
 
-  // Load boards on mount
+  // Load boards on mount — only if already connected
   useEffect(() => {
+    if (!connected) return;
     (async () => {
       try {
         const res = await fetch("/api/pinterest?action=boards");
@@ -425,7 +434,12 @@ export default function PinterestClient() {
         setBoardsLoading(false);
       }
     })();
-  }, []);
+  }, [connected]);
+
+  async function handleDisconnect() {
+    await fetch("/api/pinterest/disconnect", { method: "POST" });
+    window.location.href = "/pinterest";
+  }
 
   const loadPins = useCallback(async (board: PinterestBoard, bookmark?: string) => {
     const url = bookmark
@@ -493,24 +507,62 @@ export default function PinterestClient() {
               <span className="text-sm font-medium text-neutral-300">Pinterest Boards</span>
             </div>
           </div>
-          {activeBoard && (
-            <button onClick={() => { setActiveBoard(null); setPins(null); }}
-              className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors flex items-center gap-1">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/>
-              </svg>
-              All boards
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {activeBoard && (
+              <button onClick={() => { setActiveBoard(null); setPins(null); }}
+                className="text-xs text-neutral-500 hover:text-neutral-200 transition-colors flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/>
+                </svg>
+                All boards
+              </button>
+            )}
+            {connected ? (
+              <button onClick={handleDisconnect}
+                className="text-xs text-neutral-500 hover:text-red-400 transition-colors border border-neutral-700 hover:border-red-800/60 px-3 py-1.5 rounded-lg">
+                Disconnect Pinterest
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-10">
-        {/* API error */}
-        {apiError && <ApiNotApprovedBanner message={apiError} />}
+        {/* Not connected — show connect screen */}
+        {!connected && (
+          <div className="max-w-md mx-auto mt-20 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-red-950/40 border border-red-800/40 flex items-center justify-center mx-auto mb-6">
+              <svg className="w-8 h-8 text-red-400" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.5l-2.98-.929c-.648-.2-.66-.648.136-.961l11.647-4.494c.54-.194 1.01.131.832.105z"/>
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-neutral-100 mb-2">Connect your Pinterest account</h2>
+            <p className="text-sm text-neutral-400 mb-8">
+              Browse your boards and pins to find inspiration, then let AI identify surfaces and match them to local Vancouver tile suppliers.
+            </p>
+            {apiError && (
+              <div className="bg-red-950/40 border border-red-800/40 rounded-xl px-4 py-3 text-sm text-red-400 mb-6 text-left font-mono">
+                {apiError}
+              </div>
+            )}
+            <a href="/auth/pinterest"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-red-700 hover:bg-red-600 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-red-900/30">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.26 13.5l-2.98-.929c-.648-.2-.66-.648.136-.961l11.647-4.494c.54-.194 1.01.131.832.105z"/>
+              </svg>
+              Connect Pinterest
+            </a>
+            <p className="text-xs text-neutral-600 mt-4">
+              You&apos;ll be redirected to Pinterest to authorize access to your boards and pins.
+            </p>
+          </div>
+        )}
+
+        {/* API error (when connected but API call failed) */}
+        {connected && apiError && <ApiNotApprovedBanner message={apiError} />}
 
         {/* Loading boards */}
-        {boardsLoading && (
+        {connected && boardsLoading && (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <Spinner size="lg" />
             <p className="text-sm text-neutral-400">Loading your Pinterest boards…</p>
@@ -518,7 +570,7 @@ export default function PinterestClient() {
         )}
 
         {/* Board grid */}
-        {!boardsLoading && !apiError && !activeBoard && boards && (
+        {connected && !boardsLoading && !apiError && !activeBoard && boards && (
           <>
             <div className="mb-8">
               <h1 className="text-2xl font-bold text-neutral-100 mb-1">Your Pinterest Boards</h1>
