@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition, useRef, useCallback } from "react";
+import { useState, useTransition, useRef, useCallback, useEffect } from "react";
 import Image from "next/image";
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by Pinterest entry points (currently commented out; see TODO below)
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type { Tile } from "@/lib/getFeaturedTiles";
 
 interface Element {
@@ -329,6 +329,7 @@ function isPinterestPinUrl(u: string): boolean {
 }
 
 export default function SearchClient({ featured }: { featured: Tile[] }) {
+  const searchParams = useSearchParams();
   const [url, setUrl] = useState("");
   const [preview, setPreview] = useState("");
   // When user pastes a Pinterest pin URL, we resolve it to the underlying image URL
@@ -367,6 +368,13 @@ export default function SearchClient({ featured }: { featured: Tile[] }) {
   // Invalidated whenever the URL changes; a new crop cache-misses automatically
   // because its imageData key differs.
   const identifyCache = useRef<{ imageUrl?: string; imageData?: string; promise: Promise<Element[]> } | null>(null);
+
+  // Pre-load image from ?image= query param (e.g. when navigating from Pinterest board browser)
+  useEffect(() => {
+    const imageUrl = searchParams.get("image");
+    if (imageUrl) handleUrlChange(imageUrl);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function clearAllFilters() {
     setFilterLocation("All");

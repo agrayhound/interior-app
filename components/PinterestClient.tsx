@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useTransition, useCallback } from "react";
+import { useState, useEffect, useCallback, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -377,7 +378,7 @@ function PinCard({ pin, onClick }: { pin: PinterestPin; onClick: () => void }) {
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors duration-200 flex items-center justify-center">
           <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-white text-xs font-semibold bg-stone-600/90 px-3 py-1.5 rounded-full">
-            Find similar tiles
+            Search this image
           </span>
         </div>
       </div>
@@ -399,6 +400,8 @@ export default function PinterestClient({
   connected?: boolean;
   oauthError?: string;
 }) {
+  const router = useRouter();
+
   // Boards state
   const [boards, setBoards] = useState<PinterestBoard[] | null>(null);
   const [boardsLoading, setBoardsLoading] = useState(connected);
@@ -412,9 +415,6 @@ export default function PinterestClient({
   const [pinsLoading, setPinsLoading] = useState(false);
   const [pinsBookmark, setPinsBookmark] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-
-  // Selected pin for search
-  const [selectedPin, setSelectedPin] = useState<{ url: string; title: string } | null>(null);
 
   // Load boards on mount — only if already connected
   useEffect(() => {
@@ -486,7 +486,7 @@ export default function PinterestClient({
       ?? pin.media?.images?.["600x"]?.url
       ?? pin.media?.images?.["150x150"]?.url;
     if (!img) return;
-    setSelectedPin({ url: img, title: pin.title ?? pin.description ?? "Pinterest Pin" });
+    router.push(`/?image=${encodeURIComponent(img)}`);
   }
 
   return (
@@ -632,14 +632,6 @@ export default function PinterestClient({
         )}
       </main>
 
-      {/* Pin search modal */}
-      {selectedPin && (
-        <PinSearchPanel
-          imageUrl={selectedPin.url}
-          pinTitle={selectedPin.title}
-          onClose={() => setSelectedPin(null)}
-        />
-      )}
     </div>
   );
 }
